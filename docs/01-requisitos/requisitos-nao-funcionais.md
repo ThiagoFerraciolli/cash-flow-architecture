@@ -22,9 +22,9 @@ O desafio informa tolerância máxima de 5% de perda de requisições no cenári
 Para esta solução, essa tolerância não será interpretada como autorização para perda permanente de lançamentos financeiros já confirmados. A interpretação deve ser validada com o negócio antes da produção.
 
 ### RNF-004 — Durabilidade de lançamento confirmado
-Após o sistema confirmar a criação de um lançamento, a arquitetura deve impedir perda decorrente de falha entre persistência local e publicação do evento, utilizando transação local e Transactional Outbox.
+Após o sistema confirmar a criação de um lançamento, a solução deve impedir que uma falha entre a persistência do lançamento e a disponibilização da informação necessária à consolidação resulte em perda permanente do processamento correspondente.
 
-A garantia formal de RPO produtivo depende de requisitos de recuperação e infraestrutura ainda não informados.
+O mecanismo arquitetural para satisfazer esse requisito será avaliado e formalizado em ADR, considerando alternativas e trade-offs. A garantia formal de RPO produtivo depende de requisitos de recuperação e infraestrutura ainda não informados.
 
 ### RNF-005 — Consistência eventual
 A projeção de consolidado diário pode apresentar atraso temporário em relação aos lançamentos registrados. O modelo entre lançamento e consolidação é de consistência eventual.
@@ -32,12 +32,12 @@ A projeção de consolidado diário pode apresentar atraso temporário em relaç
 A fonte primária é o conjunto de lançamentos; o consolidado é uma projeção derivada.
 
 ### RNF-006 — Idempotência
-A solução deve evitar duplicidade causada por retries do cliente e por reentrega de eventos.
+A solução deve evitar duplicidade causada por retries do cliente e por reentrega do mecanismo de integração.
 
-Devem existir mecanismos de idempotência tanto na entrada de operações críticas quanto no processamento de eventos.
+Devem existir mecanismos de idempotência tanto na entrada de operações críticas quanto no processamento assíncrono.
 
 ### RNF-007 — Recuperação de backlog
-Após a recuperação do serviço de consolidação, eventos pendentes devem voltar a ser processados sem dupla contabilização.
+Após a recuperação do serviço de consolidação, itens pendentes de processamento devem voltar a ser processados sem dupla contabilização.
 
 ### RNF-008 — Escalabilidade
 Os serviços devem ser desenhados para permitir escalabilidade horizontal, evitando estado de sessão dependente da instância da aplicação.
@@ -56,21 +56,23 @@ Devem ser observáveis, no mínimo:
 - taxa de requisições;
 - taxa de erros;
 - latência;
-- eventos pendentes no Outbox;
-- falhas/retries de publicação;
-- consumer lag do Kafka;
-- falhas de consumo;
-- eventos em tratamento de erro/DLQ, quando aplicável;
+- itens pendentes de publicação/processamento;
+- falhas e retries de integração;
+- atraso do processamento assíncrono;
+- falhas de consumo/processamento;
+- itens em tratamento de erro/DLQ, quando aplicável;
 - freshness da consolidação;
 - health dos serviços.
+
+As métricas específicas da tecnologia selecionada, como Outbox pending ou Kafka consumer lag, serão detalhadas após as respectivas decisões arquiteturais.
 
 ### RNF-011 — Auditabilidade
 Operações financeiras devem possuir informação suficiente para identificar o lançamento, data/hora e usuário responsável, respeitando princípios de minimização e proteção de dados sensíveis nos logs.
 
 ### RNF-012 — Persistência do ambiente local
-Dados de PostgreSQL e Kafka devem utilizar volumes persistentes no ambiente Docker local, evitando perda causada apenas pela recriação dos containers.
+Dados persistentes utilizados pelo ambiente Docker local devem sobreviver à recriação dos containers por meio de volumes apropriados.
 
-A persistência local não substitui estratégia produtiva de backup, alta disponibilidade ou disaster recovery.
+A persistência local não substitui estratégia produtiva de backup, alta disponibilidade ou disaster recovery. Os componentes específicos serão detalhados após as decisões arquiteturais correspondentes.
 
 ### RNF-013 — Configuração externa
 Configurações de ambiente devem ser externalizadas. O projeto deve disponibilizar `.env.example` versionado e manter `.env` fora do controle de versão.
@@ -78,14 +80,14 @@ Configurações de ambiente devem ser externalizadas. O projeto deve disponibili
 Em produção, segredos devem utilizar serviço apropriado de gestão de segredos e identidade, e não arquivos `.env` embarcados nas imagens.
 
 ### RNF-014 — Implantação independente
-Transaction Service e Consolidation Service devem poder ser construídos, executados, interrompidos e implantados independentemente.
+O componente responsável pelos lançamentos e o componente responsável pela consolidação devem poder ser construídos, executados, interrompidos e implantados independentemente.
 
 Isso deve permitir demonstrar localmente a indisponibilidade da consolidação sem interromper o registro de lançamentos.
 
 ### RNF-015 — Portabilidade e baixo acoplamento de infraestrutura
 Regras de domínio e casos de uso não devem depender diretamente de implementações proprietárias de banco, mensageria ou cloud. Dependências externas devem permanecer nas bordas da aplicação, respeitando abstrações justificadas.
 
-Isso não implica que tecnologias diferentes, especialmente brokers, possuam semântica equivalente.
+Isso não implica que tecnologias diferentes, especialmente mecanismos de mensageria, possuam semântica equivalente.
 
 ## 3. Metas não definidas pelo desafio
 

@@ -1,0 +1,39 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDEs and editors
+.vs/
+.vscode/
+.idea/
+
+# Test results and coverage
+TestResults/
+coverage/
+coverage.*
+*.trx
+
+# Logs
+*.log
+logs/
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Local Docker/runtime data
+.docker-data/
+data/
+
+# Temporary files
+*.tmp
+*.temp

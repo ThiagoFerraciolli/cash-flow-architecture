@@ -1,81 +1,98 @@
 # Requisitos Funcionais
 
-## 1. Objetivo
+## 1. Objetivo e origem
 
-Este documento registra os requisitos funcionais identificados para o MVP de controle de fluxo de caixa. O escopo foi mantido intencionalmente aderente ao desafio: registro de lançamentos de débito e crédito e disponibilização de consolidado diário.
+O desafio fornece dois requisitos de negócio de alto nível:
+1. serviço que faça o controle de lançamentos;
+2. serviço do consolidado diário.
 
-Requisitos não informados pelo desafio não são tratados como fatos. Quando necessários para implementação, são registrados como premissas; quando dependem de decisão de negócio, são mantidos como questões em aberto.
+Os requisitos abaixo refinam essas duas capacidades sem apresentar regras não informadas como fatos. Regras desconhecidas permanecem em `questoes-em-aberto.md` e hipóteses necessárias ao MVP em `premissas.md`.
 
-Decisões técnicas como Transactional Outbox, broker de mensagens, controle de eventos processados e estratégias de idempotência não são requisitos funcionais. Esses mecanismos serão derivados dos RNFs/ASRs e formalizados em ADRs e no SDD.
+Decisões como banco de dados, broker, Transactional Outbox, padrões de processamento ou cloud não são requisitos funcionais e serão avaliadas posteriormente na arquitetura e nos ADRs.
 
-## 2. Escopo funcional do MVP
+## 2. Requisitos de negócio explícitos
 
-### RF-001 — Autenticar usuário
-O sistema deve permitir que um usuário se autentique para consumir as operações protegidas da aplicação.
+### RN-001 — Controlar lançamentos
+A solução deve oferecer a capacidade de controlar lançamentos de débito e crédito do fluxo de caixa diário.
 
-**Observação:** autenticação foi adicionada como requisito de segurança da solução. Autorização baseada em papéis e permissões não faz parte do MVP.
+### RN-002 — Disponibilizar consolidado diário
+A solução deve oferecer a capacidade de disponibilizar o saldo diário consolidado a partir dos lançamentos financeiros.
 
-### RF-002 — Registrar lançamento financeiro
-O sistema deve permitir o registro de um lançamento financeiro.
+## 3. Refinamento funcional do MVP
 
-Cada lançamento deve possuir, no mínimo:
+### RF-001 — Registrar lançamento financeiro
+**Origem:** RN-001.
+
+O sistema deve permitir registrar um lançamento financeiro de débito ou crédito.
+
+Dados mínimos adotados para o MVP:
 - identificador único;
-- tipo da operação: `DEBIT` ou `CREDIT`;
+- tipo: `DEBIT` ou `CREDIT`;
 - valor;
 - descrição opcional;
 - data/hora de ocorrência;
-- data/hora de criação;
-- usuário responsável pela criação.
+- data/hora de criação.
 
-### RF-003 — Registrar crédito
-O sistema deve permitir registrar um lançamento do tipo crédito.
+A identificação do usuário responsável poderá ser registrada quando a autenticação estiver habilitada, conforme decisão de segurança da solução.
 
-### RF-004 — Registrar débito
-O sistema deve permitir registrar um lançamento do tipo débito.
+### RF-002 — Consultar lançamento por identificador
+**Origem:** RN-001.
 
-### RF-005 — Consultar lançamento por identificador
-O sistema deve permitir consultar um lançamento específico pelo seu identificador.
+O sistema deve permitir consultar um lançamento registrado pelo seu identificador.
 
-### RF-006 — Consultar lançamentos
-O sistema deve permitir consultar lançamentos registrados, com paginação e filtros compatíveis com o MVP, incluindo período e tipo da operação.
+### RF-003 — Consultar lançamentos
+**Origem:** RN-001.
 
-### RF-007 — Processar consolidação diária
-O sistema deve processar os lançamentos registrados e criar ou atualizar o consolidado correspondente ao dia financeiro do lançamento.
+O sistema deve permitir consultar lançamentos registrados. Para tornar a operação utilizável e testável no MVP, a consulta deverá suportar paginação e filtros básicos por período e tipo.
 
-O processamento do consolidado não é iniciado manualmente pelo usuário por meio de uma operação pública de cadastro. O mecanismo técnico responsável por transportar e processar as alterações será definido pela arquitetura a partir dos requisitos de independência, durabilidade e recuperação.
+### RF-004 — Processar consolidação diária
+**Origem:** RN-002.
 
-### RF-008 — Consultar consolidado diário
+O sistema deve calcular e persistir/manter a informação necessária ao consolidado diário a partir dos lançamentos registrados.
+
+O mecanismo de integração e processamento não é definido neste requisito. Ele será derivado dos RNFs/ASRs e decidido arquiteturalmente.
+
+### RF-005 — Consultar consolidado diário
+**Origem:** RN-002.
+
 O sistema deve permitir consultar o consolidado de uma determinada data.
 
-O consolidado deve apresentar, no mínimo:
+O resultado do MVP deve disponibilizar:
 - total de créditos;
 - total de débitos;
-- saldo diário;
-- quantidade de lançamentos processados;
-- data/hora da última consolidação;
-- indicador de estado/freshness quando aplicável.
+- saldo diário (`créditos - débitos`);
+- quantidade de lançamentos refletidos;
+- data/hora da última atualização do consolidado.
 
-### RF-009 — Consultar consolidados por período
+### RF-006 — Consultar consolidados por período
+**Origem:** refinamento de RN-002 para operação e demonstração do MVP.
+
 O sistema deve permitir consultar consolidados diários em um intervalo de datas, com paginação quando aplicável.
 
-## 3. Regras mínimas conhecidas
+## 4. Regras adotadas para tornar o MVP executável
 
-- O valor de um lançamento deve ser maior que zero.
-- O tipo deve ser `DEBIT` ou `CREDIT`.
-- Um lançamento confirmado é tratado como registro financeiro imutável no MVP.
-- O saldo diário é calculado como `total de créditos - total de débitos`.
-- O consolidado é uma projeção derivada; os lançamentos financeiros constituem a fonte primária dos dados.
+Estas regras não foram explicitamente fornecidas pelo desafio e devem ser lidas junto às premissas e questões em aberto:
+- o valor do lançamento deve ser maior que zero;
+- o tipo deve ser `DEBIT` ou `CREDIT`;
+- lançamentos confirmados são tratados como imutáveis no MVP;
+- o saldo diário é calculado como total de créditos menos total de débitos;
+- o consolidado é informação derivada dos lançamentos.
 
-## 4. Fora do escopo do MVP
+## 5. Segurança funcional
 
-Não serão implementados inicialmente:
+O desafio exige que segurança seja considerada, mas não fornece cadastro de usuários, perfis ou Identity Provider como requisito de negócio. Portanto, autenticação/autorização não serão artificialmente tratadas como capacidade financeira do domínio.
+
+A proteção das APIs e das integrações será definida na visão de segurança. Se for necessário um endpoint de autenticação para tornar o ambiente local demonstrável, ele será classificado como mecanismo de suporte do MVP, não como requisito de negócio original.
+
+## 6. Fora do escopo funcional inicial
+
+Não serão adicionados sem requisito ou justificativa posterior:
 - cadastro de comerciante/multi-tenant;
-- cadastro de caixa;
-- abertura e fechamento de caixa;
-- estorno;
-- edição ou exclusão de lançamento financeiro;
-- RBAC completo;
-- relatórios financeiros adicionais;
-- exportações.
+- cadastro, abertura ou fechamento de caixa;
+- estorno/correção de lançamento;
+- edição ou exclusão física de lançamento;
+- RBAC de negócio;
+- multi-moeda;
+- relatórios adicionais e exportações.
 
-Esses itens podem ser avaliados como evoluções funcionais após definição de requisitos de negócio.
+Esses itens poderão aparecer como evoluções futuras ou ser incorporados caso uma questão em aberto seja validada como requisito.

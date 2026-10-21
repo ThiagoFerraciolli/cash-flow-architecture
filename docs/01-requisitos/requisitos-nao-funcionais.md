@@ -19,14 +19,14 @@ O serviço de controle de lançamentos não deve ficar indisponível se o sistem
 ### RNF-002 — Pico do consolidado — EXPLÍCITO
 Em dias de pico, o serviço de consolidado diário recebe 50 requisições por segundo.
 
-**Critério de aceite do MVP:** executar teste de carga reproduzível a 50 req/s sobre a interface de consulta do consolidado e registrar taxa de sucesso/erro e latência observada. O resultado local demonstra o comportamento do MVP e não constitui certificação de capacidade produtiva.
+**Critério de aceite do MVP:** executar teste de carga reproduzível a 50 req/s sobre a operação do consolidado definida no plano de teste e registrar taxa de sucesso/erro e latência observada. Como o enunciado não informa qual operação recebe essa carga, essa definição deverá ser explicitada como premissa do teste e permanece como questão aberta `QRNF-015`. O resultado local demonstra o comportamento do MVP e não constitui certificação de capacidade produtiva.
 
 ### RNF-003 — Perda máxima de requisições do consolidado — EXPLÍCITO
 No cenário de pico, o desafio admite no máximo 5% de perda de requisições do serviço de consolidado diário.
 
 **Critério de aceite do MVP:** no teste de 50 req/s, a taxa de requisições sem resposta válida por erro/perda atribuível à aplicação deve ser menor ou igual a 5%.
 
-**Observação:** o enunciado não define a semântica de “perda”. A solução não interpreta esse limite como autorização para perda permanente de lançamentos financeiros já confirmados; essa interpretação permanece registrada como premissa e questão em aberto.
+**Observação:** o enunciado não define a semântica de “perda”. A solução não interpreta esse limite como autorização para perda permanente de lançamentos financeiros já confirmados; essa interpretação permanece registrada como premissa e questão em aberto `QRNF-013`.
 
 ## 3. RNFs refinados para a solução
 

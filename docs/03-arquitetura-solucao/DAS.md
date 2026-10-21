@@ -188,9 +188,21 @@ Esse cenário existe exclusivamente para demonstrar como a arquitetura proposta 
 
 O desenho e os limites dessa hipótese estão em `arquitetura-transicao-hipotetica.md`.
 
-## 13. Custos
+## 13. Custos — diferencial
 
-Estimativa de infraestrutura/licenciamento será produzida após definição da arquitetura-alvo e premissas mínimas de sizing. Valores sem volume, retenção, região e disponibilidade seriam falsa precisão.
+Será apresentada uma **estimativa preliminar de infraestrutura e licenciamento** para a arquitetura-alvo, baseada nas premissas disponíveis no desafio e em hipóteses de sizing explicitamente documentadas.
+
+Já existe informação suficiente para estimar uma ordem de grandeza a partir dos componentes propostos — dois serviços, PostgreSQL, integração assíncrona/event streaming, observabilidade, segurança e o cenário explícito de 50 req/s no consolidado. Entretanto, o enunciado não fornece volume diário, retenção, região cloud, SLA, RTO, RPO ou crescimento esperado.
+
+Por isso:
+- os valores serão apresentados como **estimativa e ordem de grandeza**, não como orçamento produtivo definitivo;
+- região, quantidade/tamanho de instâncias, armazenamento, retenção e premissas de disponibilidade serão declarados junto ao cálculo;
+- serão separados custos de computação, banco, mensageria/event streaming, observabilidade, rede/edge e demais serviços relevantes;
+- licenças comerciais serão identificadas quando aplicáveis; tecnologias open source não serão tratadas como custo zero de operação;
+- o custo de Kafka gerenciado será confrontado com alternativas mais simples, deixando explícito o trade-off entre retenção/replay/recuperação e custo operacional;
+- a estimativa detalhada será consolidada na `Infrastructure/Cost View` após o mapeamento da arquitetura-alvo para serviços AWS específicos.
+
+A ausência das métricas ainda não fornecidas será registrada como limitação da estimativa, evitando falsa precisão sem deixar de atender ao diferencial do desafio.
 
 ## 14. Decisões ainda necessárias
 
@@ -200,7 +212,7 @@ Próximos ADRs/documentos antes da implementação:
 - estratégia de tratamento de falhas persistentes/DLQ;
 - contrato/schema e versionamento de eventos;
 - estrutura interna .NET/Clean/Hexagonal no SDD;
-- infraestrutura local e target;
+- infraestrutura local e target, incluindo `Infrastructure/Cost View` com premissas e estimativa preliminar;
 - Data, Integration, Security, Resilience e Observability Views.
 
 ## 15. Critérios para aceitar esta arquitetura
@@ -214,4 +226,5 @@ Antes de considerar o DAS aprovado, validar:
 - Transactional Outbox;
 - idempotência na entrada e no consumo;
 - arquitetura de transição explicitamente hipotética e limitada ao diferencial;
+- estimativa de custos tratada como diferencial com premissas explícitas e sem falsa precisão;
 - ausência deliberada de regras financeiras não fornecidas pelo desafio.

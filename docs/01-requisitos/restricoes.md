@@ -1,27 +1,36 @@
 # Restrições
 
-## Restrições do desafio
+## 1. Restrições impostas pelo desafio
 
-- A solução deve atender ao problema de lançamentos de débito/crédito e consolidação diária.
-- A indisponibilidade da consolidação não pode causar indisponibilidade do controle de lançamentos.
-- O cenário de pico informado para o consolidado é de 50 requisições por segundo, com tolerância máxima de perda indicada pelo desafio de 5%.
-- Para a perspectiva de Software Architect, a implementação deve utilizar C#.
-- Devem existir testes.
-- O repositório deve ser público e conter a documentação do projeto.
-- O README deve permitir compreender e executar a solução localmente.
+- A solução deve atender ao controle de lançamentos de débito e crédito e ao consolidado diário.
+- O serviço de controle de lançamentos não deve ficar indisponível se o sistema de consolidado diário cair.
+- Em dias de pico, o serviço de consolidado diário recebe 50 requisições por segundo, com no máximo 5% de perda de requisições.
+- Na avaliação de Solutions Architect, são obrigatórios: mapeamento de domínios funcionais e capacidades de negócio, refinamento de requisitos funcionais e não funcionais, arquitetura-alvo completa, justificativa das escolhas de ferramentas/tecnologias e tipo de arquitetura, testes, README, repositório público e documentação no repositório.
+- Na avaliação de Software Architect, são obrigatórios: desenho da solução, implementação em C#, testes, README, repositório público e documentação no repositório. Boas práticas como Design Patterns, padrões arquiteturais e SOLID são explicitamente valorizadas.
+- O desafio permite que aspectos arquiteturais relevantes sejam demonstrados por decisões e representações arquiteturais, sem exigir que todas as premissas estejam codificadas.
 
-## Restrições definidas para a entrega
+## 2. Diferenciais explicitamente solicitados para Solutions Architect
 
-- O ambiente local será reproduzível com Docker Compose.
-- PostgreSQL e Kafka utilizarão volumes persistentes no ambiente local.
-- Configurações serão externalizadas e um `.env.example` será fornecido.
-- Segredos reais não serão versionados.
-- Transaction Service e Consolidation Service serão processos/deployments independentes.
-- O projeto evitará dependência direta do domínio em tecnologias de infraestrutura.
-- AWS será a referência detalhada da arquitetura produtiva; Azure e GCP serão documentados como alternativas por capacidade.
-- Funcionalidades não exigidas pelo desafio somente serão implementadas quando necessárias para satisfazer requisito, ASR, risco ou critério de avaliação.
+Devem ser considerados na entrega:
+- arquitetura de transição, somente se houver cenário de legado/migração que a justifique;
+- estimativa de custos de infraestrutura e licenças;
+- monitoramento e observabilidade;
+- critérios de segurança para consumo e integração de serviços.
 
-## Restrições de processo
+## 3. Restrições e critérios da estratégia de entrega
 
-- Alterações do projeto, após o bootstrap inicial do repositório, devem ocorrer por branch e Pull Request.
+Os itens abaixo orientam a execução do desafio, mas não são apresentados como requisitos de negócio:
+
+- O ambiente executável local deverá ser simples e reproduzível, preferencialmente containerizado.
+- Configurações devem ser externalizadas e segredos reais não podem ser versionados.
+- A implementação que atender à avaliação de Software Architect será feita em C#.
+- O domínio e os casos de uso devem evitar acoplamento desnecessário a tecnologias de infraestrutura.
+- Tecnologias de persistência, integração, cloud, padrões e estilo arquitetural serão formalmente escolhidos em ADRs após análise dos requisitos e ASRs.
+- Funcionalidades não exigidas pelo desafio somente serão implementadas quando contribuírem para requisito, ASR, risco ou critério de avaliação.
+- A documentação deve distinguir claramente: `IMPLEMENTADO`, `VALIDADO`, `ARQUITETURA-ALVO` e `EVOLUÇÃO`.
+
+## 4. Restrições de processo do repositório
+
+- Após o bootstrap inicial autorizado, alterações devem ocorrer por branch e Pull Request.
 - Pull Requests não devem ser integrados à `main` sem revisão e aprovação explícita do responsável pelo projeto.
+- Antes da abertura de novos Pull Requests, o conjunto de alterações deve ser revisado integralmente contra o desafio e contra a rastreabilidade existente.

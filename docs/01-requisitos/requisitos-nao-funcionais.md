@@ -1,106 +1,101 @@
 # Requisitos Não Funcionais
 
-## 1. Objetivo
+## 1. Objetivo e classificação
 
-Este documento registra requisitos não funcionais fornecidos pelo desafio e refinamentos arquiteturais necessários para orientar a solução. Metas não fornecidas, como RTO, RPO, SLA e latência P95/P99, não são inventadas: permanecem registradas como questões em aberto.
+Este documento separa o que foi **explicitamente informado pelo desafio** do que foi **refinado para orientar a solução**. Metas não fornecidas, como SLA/SLO, RTO, RPO e latência P95/P99, não são inventadas.
 
-## 2. Requisitos do desafio e refinamentos
+Classificação utilizada:
+- **EXPLÍCITO**: requisito informado pelo desafio;
+- **REFINADO**: requisito derivado dos objetivos técnicos, do requisito explícito ou de riscos necessários para tornar a solução verificável;
+- **PENDENTE**: atributo relevante cuja meta depende de validação com stakeholders.
 
-### RNF-001 — Independência entre lançamento e consolidação
-A indisponibilidade do serviço de consolidação não deve tornar indisponível o serviço responsável pelo registro de lançamentos.
+## 2. RNFs explícitos do desafio
 
-A solução deve permitir que novos lançamentos continuem sendo aceitos e persistidos enquanto a consolidação estiver indisponível.
+### RNF-001 — Independência entre lançamento e consolidação — EXPLÍCITO
+O serviço de controle de lançamentos não deve ficar indisponível se o sistema de consolidado diário cair.
 
-### RNF-002 — Carga do consolidado
-O serviço de consolidação deve ser projetado considerando o pico informado de 50 requisições por segundo.
+**Critério de aceite do MVP:** durante a indisponibilidade da consolidação, novas solicitações válidas de lançamento continuam podendo ser aceitas e persistidas pelo componente responsável por lançamentos.
 
-O teste local de carga deve demonstrar o comportamento da aplicação nesse cenário, sem ser apresentado como garantia de capacidade do ambiente produtivo.
+### RNF-002 — Pico do consolidado — EXPLÍCITO
+Em dias de pico, o serviço de consolidado diário recebe 50 requisições por segundo.
 
-### RNF-003 — Tolerância de perda informada pelo desafio
-O desafio informa tolerância máxima de 5% de perda de requisições no cenário de pico do consolidado.
+**Critério de aceite do MVP:** executar teste de carga reproduzível a 50 req/s sobre a interface de consulta do consolidado e registrar taxa de sucesso/erro e latência observada. O resultado local demonstra o comportamento do MVP e não constitui certificação de capacidade produtiva.
 
-Para esta solução, essa tolerância não será interpretada como autorização para perda permanente de lançamentos financeiros já confirmados. A interpretação deve ser validada com o negócio antes da produção.
+### RNF-003 — Perda máxima de requisições do consolidado — EXPLÍCITO
+No cenário de pico, o desafio admite no máximo 5% de perda de requisições do serviço de consolidado diário.
 
-### RNF-004 — Durabilidade de lançamento confirmado
-Após o sistema confirmar a criação de um lançamento, a solução deve impedir que uma falha entre a persistência do lançamento e a disponibilização da informação necessária à consolidação resulte em perda permanente do processamento correspondente.
+**Critério de aceite do MVP:** no teste de 50 req/s, a taxa de requisições sem resposta válida por erro/perda atribuível à aplicação deve ser menor ou igual a 5%.
 
-O mecanismo arquitetural para satisfazer esse requisito será avaliado e formalizado em ADR, considerando alternativas e trade-offs. A garantia formal de RPO produtivo depende de requisitos de recuperação e infraestrutura ainda não informados.
+**Observação:** o enunciado não define a semântica de “perda”. A solução não interpreta esse limite como autorização para perda permanente de lançamentos financeiros já confirmados; essa interpretação permanece registrada como premissa e questão em aberto.
 
-### RNF-005 — Consistência eventual
-A projeção de consolidado diário pode apresentar atraso temporário em relação aos lançamentos registrados. O modelo entre lançamento e consolidação é de consistência eventual.
+## 3. RNFs refinados para a solução
 
-A fonte primária é o conjunto de lançamentos; o consolidado é uma projeção derivada.
+### RNF-004 — Durabilidade após confirmação — REFINADO
+Após confirmar a criação de um lançamento, uma falha intermediária não deve provocar perda permanente do lançamento nem impedir definitivamente que ele seja refletido no consolidado.
 
-### RNF-006 — Idempotência
-A solução deve evitar duplicidade causada por retries do cliente e por reentrega do mecanismo de integração.
+O mecanismo para satisfazer esse requisito será decidido por ADR após análise de alternativas. O RPO formal de produção permanece pendente.
 
-Devem existir mecanismos de idempotência tanto na entrada de operações críticas quanto no processamento assíncrono.
+### RNF-005 — Convergência do consolidado — REFINADO
+O consolidado pode apresentar defasagem temporária para preservar a independência exigida pelo RNF-001, mas deve convergir após a recuperação do processamento.
 
-### RNF-007 — Recuperação de backlog
-Após a recuperação do serviço de consolidação, itens pendentes de processamento devem voltar a ser processados sem dupla contabilização.
+A janela máxima aceitável de defasagem não foi informada e permanece pendente.
 
-### RNF-008 — Escalabilidade
-Os serviços devem ser desenhados para permitir escalabilidade horizontal, evitando estado de sessão dependente da instância da aplicação.
+### RNF-006 — Idempotência — REFINADO
+Tentativas repetidas da mesma operação e reprocessamentos não devem causar duplicidade de lançamento nem dupla contabilização no consolidado.
 
-A arquitetura-alvo deve considerar balanceamento de carga e autoscaling de acordo com métricas e limites posteriormente definidos.
+### RNF-007 — Recuperação do processamento — REFINADO
+Após a recuperação da capacidade de consolidação, o trabalho pendente deve voltar a ser processado até a convergência, com tratamento controlado de falhas persistentes.
 
-### RNF-009 — Segurança
-As APIs protegidas devem exigir autenticação. Segredos não devem ser armazenados no código-fonte.
+### RNF-008 — Escalabilidade — REFINADO A PARTIR DO OBJETIVO DO DESAFIO
+A arquitetura deve permitir aumento de capacidade sem exigir alteração das regras de negócio e deve avaliar dimensionamento horizontal, balanceamento de carga e cache conforme necessidade demonstrada.
 
-O ambiente produtivo deve considerar, conforme arquitetura-alvo e requisitos corporativos: Identity Provider com OAuth2/OIDC, TLS, WAF, API Gateway, gestão de segredos, criptografia, IAM/least privilege, rede privada e auditoria.
+Cache não será introduzido apenas por sofisticação; sua adoção depende de benefício e consistência compatíveis com o caso.
 
-### RNF-010 — Observabilidade
-A solução deve permitir observação do fluxo ponta a ponta por logs estruturados, métricas e correlação/tracing.
+### RNF-009 — Segurança — REFINADO A PARTIR DO OBJETIVO E DO DIFERENCIAL
+A solução deve proteger APIs, integrações, dados e segredos. Deve considerar autenticação, autorização, criptografia em trânsito e em repouso no ambiente-alvo, gestão de segredos, least privilege, proteção contra ataques e auditoria.
 
-Devem ser observáveis, no mínimo:
-- taxa de requisições;
-- taxa de erros;
-- latência;
-- itens pendentes de publicação/processamento;
-- falhas e retries de integração;
-- atraso do processamento assíncrono;
-- falhas de consumo/processamento;
-- itens em tratamento de erro/DLQ, quando aplicável;
-- freshness da consolidação;
-- health dos serviços.
+Os critérios de segurança de consumo e integração entre serviços deverão ser detalhados na arquitetura-alvo, atendendo ao diferencial explícito do desafio de Solutions Architect.
 
-As métricas específicas da tecnologia selecionada, como Outbox pending ou Kafka consumer lag, serão detalhadas após as respectivas decisões arquiteturais.
+### RNF-010 — Observabilidade — REFINADO A PARTIR DO DIFERENCIAL
+A solução deve permitir monitoramento e diagnóstico do fluxo ponta a ponta.
 
-### RNF-011 — Auditabilidade
-Operações financeiras devem possuir informação suficiente para identificar o lançamento, data/hora e usuário responsável, respeitando princípios de minimização e proteção de dados sensíveis nos logs.
+Devem ser observáveis, conforme aplicável à tecnologia escolhida:
+- taxa de requisições, erros e latência;
+- estado de saúde dos componentes;
+- trabalho pendente e atraso de processamento;
+- retries e falhas persistentes;
+- freshness/última atualização do consolidado;
+- correlação entre lançamento e processamento;
+- utilização/saturação dos recursos relevantes.
 
-### RNF-012 — Persistência do ambiente local
-Dados persistentes utilizados pelo ambiente Docker local devem sobreviver à recriação dos containers por meio de volumes apropriados.
+### RNF-011 — Auditabilidade — REFINADO
+Operações financeiras devem manter informação suficiente para identificar o lançamento, instante de criação e identidade responsável quando disponível, sem expor dados sensíveis indevidamente em logs.
 
-A persistência local não substitui estratégia produtiva de backup, alta disponibilidade ou disaster recovery. Os componentes específicos serão detalhados após as decisões arquiteturais correspondentes.
+### RNF-012 — Configuração e segredos — REFINADO
+Configurações dependentes de ambiente devem ser externalizadas e segredos reais não devem ser versionados nem incorporados às imagens da aplicação.
 
-### RNF-013 — Configuração externa
-Configurações de ambiente devem ser externalizadas. O projeto deve disponibilizar `.env.example` versionado e manter `.env` fora do controle de versão.
+### RNF-013 — Isolamento de falhas e operação — REFINADO
+A arquitetura deve permitir demonstrar que a indisponibilidade da consolidação não interrompe o registro de lançamentos. A decomposição física/deployment utilizada para isso será definida pelo ADR de estilo arquitetural e pela arquitetura-alvo.
 
-Em produção, segredos devem utilizar serviço apropriado de gestão de segredos e identidade, e não arquivos `.env` embarcados nas imagens.
+### RNF-014 — Baixo acoplamento às tecnologias de infraestrutura — REFINADO
+Regras de domínio e casos de uso devem permanecer desacoplados de detalhes específicos de persistência, mensageria e cloud sempre que essa abstração trouxer benefício de testabilidade, manutenção ou portabilidade.
 
-### RNF-014 — Implantação independente
-O componente responsável pelos lançamentos e o componente responsável pela consolidação devem poder ser construídos, executados, interrompidos e implantados independentemente.
+Isso não implica equivalência semântica entre diferentes produtos ou serviços de infraestrutura.
 
-Isso deve permitir demonstrar localmente a indisponibilidade da consolidação sem interromper o registro de lançamentos.
+## 4. Atributos relevantes sem meta definida — PENDENTE
 
-### RNF-015 — Portabilidade e baixo acoplamento de infraestrutura
-Regras de domínio e casos de uso não devem depender diretamente de implementações proprietárias de banco, mensageria ou cloud. Dependências externas devem permanecer nas bordas da aplicação, respeitando abstrações justificadas.
-
-Isso não implica que tecnologias diferentes, especialmente mecanismos de mensageria, possuam semântica equivalente.
-
-## 3. Metas não definidas pelo desafio
-
-Os seguintes atributos de qualidade precisam de definição antes de uma arquitetura produtiva ser considerada completamente dimensionada:
+Precisam de definição antes de compromissos produtivos:
 - SLA/SLO de disponibilidade;
 - RTO por capacidade;
 - RPO por categoria de dado;
 - latência P95/P99;
-- volume máximo de lançamentos;
-- crescimento esperado;
+- pico de escrita de lançamentos;
+- volume diário/anual e crescimento;
 - retenção e arquivamento;
-- estratégia de disaster recovery;
-- requisitos regulatórios/compliance;
-- requisitos de localização geográfica dos dados.
+- janela máxima de defasagem do consolidado;
+- estratégia de disaster recovery e requisito multi-região;
+- requisitos regulatórios/compliance e LGPD específicos;
+- localização geográfica dos dados;
+- requisitos corporativos de identidade e autorização.
 
-Essas lacunas são detalhadas em `questoes-em-aberto.md`.
+As perguntas correspondentes estão registradas em `questoes-em-aberto.md`.

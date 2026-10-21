@@ -5,7 +5,7 @@
 
 ## Contexto
 
-O desafio exige que o serviço de controle de lançamentos continue disponível quando o sistema de consolidado diário estiver indisponível. As duas capacidades também apresentam perfis distintos: lançamentos representam fatos financeiros primários; consolidação é uma visão derivada e possui requisito explícito de 50 req/s.
+O desafio exige que o serviço de controle de lançamentos continue disponível quando o sistema de consolidado diário estiver indisponível. As duas capacidades também apresentam perfis distintos: lançamentos representam fatos financeiros primários; consolidação é uma visão derivada. O enunciado informa ainda um cenário de 50 req/s para o serviço de consolidação, sem especificar qual operação recebe essa carga.
 
 Precisamos decidir a unidade de execução/deployment sem assumir que “microsserviços” são automaticamente a melhor resposta.
 
@@ -34,6 +34,8 @@ Precisamos decidir a unidade de execução/deployment sem assumir que “micross
 Adotar **dois serviços independentes**, um para `Transactions` e outro para `Daily Consolidation`, cada um alinhado a uma capacidade/bounded context.
 
 Esta solução usa arquitetura de serviços/microsserviços de granularidade grossa: apenas duas unidades justificadas pelo requisito de isolamento. Não serão criados serviços adicionais para autenticação, relatórios, eventos ou outras responsabilidades sem driver arquitetural.
+
+A decisão não depende do cenário hipotético de transição. O cenário de transição apenas demonstra como uma solução monolítica hipotética poderia evoluir para a arquitetura-alvo; a justificativa primária para os dois serviços continua sendo o RNF explícito de independência entre Lançamentos e Consolidação.
 
 ## Consequências
 

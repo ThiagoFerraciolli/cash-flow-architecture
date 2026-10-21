@@ -5,7 +5,7 @@
 
 ## 1. Objetivo
 
-Descrever a arquitetura proposta para controle de lançamentos de débito/crédito e consolidado diário, garantindo que a indisponibilidade da consolidação não interrompa lançamentos e considerando o cenário explícito de 50 req/s com no máximo 5% de perda de requisições no consolidado.
+Descrever a arquitetura proposta para controle de lançamentos de débito/crédito e consolidado diário, garantindo que a indisponibilidade da consolidação não interrompa lançamentos e considerando o cenário explícito de 50 req/s com no máximo 5% de perda de requisições no consolidado. A operação exata à qual os 50 req/s se aplicam não é informada pelo enunciado e deverá ser declarada como premissa no plano de teste.
 
 ## 2. Drivers principais
 
@@ -14,7 +14,7 @@ Descrever a arquitetura proposta para controle de lançamentos de débito/crédi
 3. Consolidação indisponível não bloqueia novos lançamentos.
 4. Lançamento confirmado precisa permanecer recuperável para futura consolidação.
 5. Reprocessamento não pode causar dupla contabilização.
-6. O consolidado precisa considerar o cenário de carga informado.
+6. O consolidado precisa considerar o cenário de carga informado, sem inventar qual operação recebe os 50 req/s.
 7. Segurança, observabilidade, escalabilidade e recuperação precisam aparecer na arquitetura, mesmo quando metas produtivas ainda não foram informadas.
 
 ## 3. Arquitetura lógica proposta
@@ -159,7 +159,8 @@ Alert thresholds dependem de SLOs ainda não fornecidos.
 - índices orientados aos padrões de consulta;
 - partições/consumers do broker somente conforme necessidade de throughput e sem inventar requisito de ordenação;
 - cache não será usado inicialmente sem evidência de necessidade;
-- teste de 50 req/s será reproduzível e reportará sucesso/erro/latência.
+- teste de 50 req/s será reproduzível e reportará sucesso/erro/latência;
+- o plano de teste declarará explicitamente qual operação do consolidado foi adotada para interpretar os 50 req/s e a semântica utilizada para medir a perda máxima de 5%.
 
 ## 11. Arquitetura-alvo cloud
 
@@ -177,11 +178,15 @@ Capacidades necessárias na arquitetura-alvo:
 
 Não serão declarados RTO/RPO/SLA que o desafio não forneceu.
 
-## 12. Arquitetura de transição
+## 12. Arquitetura de transição — diferencial
 
-O desafio não apresenta sistema legado ou migração existente. Portanto, **não há arquitetura de transição a desenhar neste momento**. Na entrega final isso será explicitado como “não aplicável ao cenário fornecido”, em vez de inventar um legado para obter o diferencial.
+O enunciado não informa a existência de legado ou migração. Para demonstrar o diferencial solicitado de arquitetura de transição sem transformar uma hipótese em requisito, será apresentado separadamente um **cenário hipotético** de modernização.
 
-A passagem de ambiente local para arquitetura-alvo será documentada como estratégia de implantação/evolução, não como migração de legado.
+Nesse cenário hipotético, considera-se um monólito legado no qual Lançamentos e Consolidação compartilham processo/ciclo de vida e persistência, com risco de indisponibilidade conjunta e inconsistência/perda de dados em falhas. A arquitetura-alvo separa as duas capacidades em serviços independentes, com ownership de dados, persistência durável, integração assíncrona, publicação confiável e processamento idempotente.
+
+Esse cenário existe exclusivamente para demonstrar como a arquitetura proposta poderia ser utilizada em uma transição. **Não será criado um projeto de migração, plano de fases ou requisito de legado**, pois isso não faz parte do desafio.
+
+O desenho e os limites dessa hipótese estão em `arquitetura-transicao-hipotetica.md`.
 
 ## 13. Custos
 
@@ -208,4 +213,5 @@ Antes de considerar o DAS aprovado, validar:
 - PostgreSQL como persistência;
 - Transactional Outbox;
 - idempotência na entrada e no consumo;
+- arquitetura de transição explicitamente hipotética e limitada ao diferencial;
 - ausência deliberada de regras financeiras não fornecidas pelo desafio.

@@ -6,6 +6,8 @@ Este documento registra os requisitos funcionais identificados para o MVP de con
 
 Requisitos não informados pelo desafio não são tratados como fatos. Quando necessários para implementação, são registrados como premissas; quando dependem de decisão de negócio, são mantidos como questões em aberto.
 
+Decisões técnicas como Transactional Outbox, broker de mensagens, controle de eventos processados e estratégias de idempotência não são requisitos funcionais. Esses mecanismos serão derivados dos RNFs/ASRs e formalizados em ADRs e no SDD.
+
 ## 2. Escopo funcional do MVP
 
 ### RF-001 — Autenticar usuário
@@ -38,9 +40,9 @@ O sistema deve permitir consultar um lançamento específico pelo seu identifica
 O sistema deve permitir consultar lançamentos registrados, com paginação e filtros compatíveis com o MVP, incluindo período e tipo da operação.
 
 ### RF-007 — Processar consolidação diária
-O sistema deve processar os eventos de lançamentos e criar ou atualizar o consolidado correspondente ao dia financeiro do lançamento.
+O sistema deve processar os lançamentos registrados e criar ou atualizar o consolidado correspondente ao dia financeiro do lançamento.
 
-O processamento do consolidado não é iniciado manualmente pelo usuário por meio de uma operação de cadastro pública; ele é consequência do processamento assíncrono dos eventos financeiros.
+O processamento do consolidado não é iniciado manualmente pelo usuário por meio de uma operação pública de cadastro. O mecanismo técnico responsável por transportar e processar as alterações será definido pela arquitetura a partir dos requisitos de independência, durabilidade e recuperação.
 
 ### RF-008 — Consultar consolidado diário
 O sistema deve permitir consultar o consolidado de uma determinada data.
@@ -55,19 +57,6 @@ O consolidado deve apresentar, no mínimo:
 
 ### RF-009 — Consultar consolidados por período
 O sistema deve permitir consultar consolidados diários em um intervalo de datas, com paginação quando aplicável.
-
-### RF-010 — Registrar evento para publicação
-Ao confirmar um lançamento financeiro, o sistema deve registrar de forma atômica a intenção de publicação do respectivo evento para processamento assíncrono.
-
-Esse registro compõe o mecanismo Transactional Outbox e deve ocorrer na mesma transação local do lançamento financeiro.
-
-### RF-011 — Publicar eventos pendentes
-O sistema deve identificar eventos ainda não publicados e encaminhá-los ao mecanismo de mensageria, mantendo informação suficiente para rastrear o estado da publicação e suas falhas.
-
-### RF-012 — Registrar evento processado
-O serviço de consolidação deve manter controle dos eventos já aplicados ao consolidado para impedir dupla contabilização em caso de reentrega da mensagem.
-
-O registro do evento processado e a alteração do consolidado devem ocorrer atomicamente na mesma transação local.
 
 ## 3. Regras mínimas conhecidas
 

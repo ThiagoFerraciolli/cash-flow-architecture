@@ -1,69 +1,75 @@
 # DAS — Documento de Arquitetura da Solução
 
-- **Status:** RASCUNHO PARA VALIDAÇÃO
-- **Escopo:** arquitetura de solução do MVP do desafio
+- **Status:** DOCUMENTAÇÃO ARQUITETURAL CONSOLIDADA — PENDENTE DE VALIDAÇÃO DO RESPONSÁVEL
+- **Escopo:** arquitetura de solução do MVP dos desafios de Arquiteto de Soluções e Arquiteto de Software
 
 ## 1. Objetivo
 
-Descrever a arquitetura proposta para controle de lançamentos de débito/crédito e consolidado diário, garantindo que a indisponibilidade da consolidação não interrompa lançamentos e considerando o cenário explícito de 50 req/s com no máximo 5% de perda de requisições no consolidado. A operação exata à qual os 50 req/s se aplicam não é informada pelo enunciado e deverá ser declarada como premissa no plano de teste.
+Descrever a arquitetura proposta para controle de lançamentos de débito/crédito e consolidação diária, garantindo que a indisponibilidade da consolidação não interrompa novos lançamentos e considerando o requisito explícito de 50 req/s com no máximo 5% de perda de requisições no consolidado.
 
-## 2. Drivers principais
+O enunciado não informa a operação exata à qual os 50 req/s se aplicam. A estratégia de testes registra explicitamente a hipótese adotada, sem transformá-la em requisito de negócio.
 
-1. Lançamentos são a capacidade financeira primária.
-2. Consolidação é uma visão derivada.
-3. Consolidação indisponível não bloqueia novos lançamentos.
-4. Lançamento confirmado precisa permanecer recuperável para futura consolidação.
-5. Reprocessamento não pode causar dupla contabilização.
-6. O consolidado precisa considerar o cenário de carga informado, sem inventar qual operação recebe os 50 req/s.
-7. Segurança, observabilidade, escalabilidade e recuperação precisam aparecer na arquitetura, mesmo quando metas produtivas ainda não foram informadas.
+## 2. Direcionadores arquiteturais
 
-## 3. Arquitetura lógica proposta
+1. O controle de lançamentos é uma capacidade de negócio independente da consolidação.
+2. O consolidado diário é uma visão derivada dos lançamentos.
+3. A indisponibilidade da consolidação não pode impedir a confirmação de novos lançamentos válidos.
+4. Um lançamento confirmado deve permanecer recuperável para processamento posterior.
+5. Reprocessamento e repetição de mensagens não podem gerar dupla contabilização.
+6. A solução deve suportar o cenário de carga informado e produzir evidência por teste.
+7. Segurança, observabilidade, escalabilidade e recuperação precisam estar representadas mesmo quando metas produtivas não foram fornecidas.
+8. Decisões produtivas dependentes de SLA, RTO, RPO, volume e retenção não serão inventadas.
+
+## 3. Arquitetura lógica
 
 ```mermaid
 flowchart LR
-    U[Consumidor] -->|HTTPS| T[Transactions Service]
-    U -->|HTTPS| C[Consolidation Service]
+    U[Consumidor] -->|HTTPS| T[Serviço de Lançamentos]
+    U -->|HTTPS| C[API de Consolidação]
 
-    T --> TDB[(Transactions PostgreSQL)]
-    TDB --> OP[Outbox Publisher]
+    T --> TDB[(PostgreSQL\nLançamentos)]
+    TDB --> OP[Publicador da Outbox]
     OP --> K[(Kafka)]
-    K --> CC[Consolidation Consumer]
-    CC --> CDB[(Consolidation PostgreSQL)]
+    K --> CC[Consumidor de Consolidação]
+    CC --> CDB[(PostgreSQL\nConsolidação)]
     C --> CDB
 
-    OBS[Observability] -. logs / metrics / traces .- T
-    OBS -. logs / metrics / traces .- C
-    OBS -. backlog / lag .- OP
-    OBS -. processing .- CC
+    OBS[Observabilidade] -. logs / métricas / rastreamento .- T
+    OBS -. logs / métricas / rastreamento .- C
+    OBS -. pendências .- OP
+    OBS -. atraso / processamento .- CC
 ```
 
-A figura representa a proposta resultante dos ADRs em validação; não deve ser interpretada como decisão aceita antes da aprovação dos ADRs.
+As decisões representadas neste desenho estão formalizadas nos ADRs do repositório e detalhadas nas visões C4, dados, integração, segurança, resiliência, observabilidade, infraestrutura e no SDD.
 
 ## 4. Responsabilidades
 
-### Transactions Service
+### Serviço de Lançamentos
 
 - `POST /transactions` — registrar débito/crédito;
 - `GET /transactions/{id}` — consultar por identificador;
-- `GET /transactions` — consultar lista/página;
-- persistir fatos financeiros;
-- garantir que a intenção de integração sobreviva à confirmação do lançamento;
-- publicar eventos de forma recuperável.
+- `GET /transactions` — consultar lançamentos com paginação/filtros definidos;
+- persistir os fatos financeiros sob sua responsabilidade;
+- persistir a intenção de publicação no mesmo compromisso transacional do lançamento;
+- permitir publicação assíncrona e recuperável dos eventos.
 
-### Consolidation Service
+O sucesso do `POST /transactions` depende da persistência local do lançamento e da Outbox, **não** da disponibilidade de Kafka ou da Consolidação.
+
+### Consolidação
 
 - consumir eventos de lançamentos;
 - aplicar eventos de forma idempotente;
-- manter projeção `DailyConsolidation`;
+- manter a projeção `DailyConsolidation`;
 - `GET /consolidations/{date}`;
 - `GET /consolidations?from=&to=`;
-- expor freshness/última atualização suficiente para diagnóstico.
+- disponibilizar informação de última atualização para diagnóstico.
 
-Não haverá endpoint público para “cadastrar consolidação”; a atualização é consequência do processamento dos lançamentos.
+Não existe endpoint público para criar uma consolidação. Ela é atualizada como consequência do processamento dos lançamentos.
 
-## 5. Modelo de dados conceitual
+## 5. Modelo conceitual de dados
 
 ### FinancialTransaction
+
 - `id`
 - `type` (`DEBIT`/`CREDIT`)
 - `amount`
@@ -71,16 +77,18 @@ Não haverá endpoint público para “cadastrar consolidação”; a atualizaç
 - `occurredAt`
 - `createdAt`
 
-### OutboxEvent — técnico
+### OutboxEvent — estrutura técnica
+
 - `id/eventId`
 - `aggregateId`
 - `eventType`
 - `payload`
 - `occurredAt`
 - `publishedAt?`
-- `status/retry metadata` conforme design final
+- metadados de tentativas/publicação
 
 ### DailyConsolidation
+
 - `date`
 - `totalCredits`
 - `totalDebits`
@@ -88,143 +96,184 @@ Não haverá endpoint público para “cadastrar consolidação”; a atualizaç
 - `transactionCount`
 - `lastUpdatedAt`
 
-### ProcessedEvent — técnico
+### ProcessedEvent — estrutura técnica
+
 - `eventId`
 - `processedAt`
 
+Os modelos detalhados e a propriedade dos dados são tratados no SDD e na visão de dados.
+
 ## 6. Consistência e fluxo
 
-### Registro
+### Registro de lançamento
 
-1. consumidor envia lançamento com chave de idempotência;
-2. Transactions valida a requisição;
-3. lançamento e intenção de publicação são persistidos atomicamente;
-4. API confirma sucesso após commit;
-5. publicação ocorre fora do caminho crítico da requisição.
+1. consumidor envia um lançamento com `Idempotency-Key`;
+2. o Serviço de Lançamentos valida a requisição;
+3. lançamento e evento da Outbox são persistidos na mesma transação PostgreSQL;
+4. a API confirma sucesso somente após esse compromisso local;
+5. o Publicador da Outbox envia o evento posteriormente para Kafka;
+6. falha temporária de Kafka não desfaz o lançamento confirmado.
 
 ### Consolidação
 
-1. evento é entregue ao consumidor;
-2. consumidor verifica `eventId`;
-3. se já processado, encerra sem reaplicar efeito;
-4. se novo, atualiza consolidado e registra processamento na mesma transação local;
-5. projeção converge conforme backlog é consumido.
+1. Kafka entrega o evento ao consumidor;
+2. o consumidor verifica o `eventId`;
+3. eventos já processados não têm seus efeitos reaplicados;
+4. para um evento novo, a projeção e o registro de processamento são persistidos na mesma transação local;
+5. o deslocamento do consumidor só é confirmado após persistência bem-sucedida;
+6. a projeção converge à medida que o backlog é consumido.
 
-## 7. Cenário crítico de falha
+A entrega é tratada como **pelo menos uma vez (at-least-once)**; não é feita promessa de exatamente uma vez.
 
-Se Consolidation Service estiver indisponível:
-- Transactions continua aceitando e persistindo lançamentos;
-- informação pendente permanece recuperável;
-- consolidado pode ficar defasado ou sua API pode ficar indisponível — o desafio não exige disponibilidade do consolidado durante sua própria queda;
-- após recuperação, backlog é processado;
-- eventos repetidos não alteram o resultado duas vezes.
+## 7. Cenários de falha e recuperação
 
-Esse cenário será obrigatório na estratégia de testes.
+### Consolidação indisponível
 
-## 8. Segurança — direção da arquitetura-alvo
+- Lançamentos continua aceitando e persistindo transações válidas;
+- eventos permanecem recuperáveis;
+- o consolidado pode ficar temporariamente defasado;
+- após recuperação, o backlog é processado;
+- repetição de evento não altera o consolidado duas vezes.
 
-### Local/MVP
-- APIs protegidas conforme mecanismo simples definido no SDD;
-- segredos/configurações externalizados;
-- nenhum segredo real versionado.
+### Kafka indisponível
+
+- lançamento e Outbox continuam sendo persistidos;
+- o Publicador da Outbox repete a publicação após recuperação;
+- a API de Lançamentos não depende de Kafka para confirmar o lançamento.
+
+### Falha após publicação e antes da marcação da Outbox
+
+- o evento pode ser publicado novamente;
+- o consumidor idempotente impede dupla contabilização.
+
+Esses cenários são parte obrigatória da estratégia de testes.
+
+## 8. Segurança
+
+### Ambiente local
+
+- configurações e segredos ficam fora do código-fonte;
+- nenhum segredo real é versionado;
+- a implementação deve manter separação entre configuração e código.
 
 ### Arquitetura-alvo
-- HTTPS/TLS;
-- Identity Provider OAuth2/OIDC conforme padrão corporativo;
-- autorização por escopo/política quando requisitos forem conhecidos;
-- WAF/API Gateway ou equivalente na borda;
-- secret/key management;
-- least privilege para workloads;
-- rede privada para banco/broker;
+
+- HTTPS/TLS na comunicação externa;
+- OAuth2/OIDC por provedor de identidade corporativo quando definido;
+- autorização por escopo/política conforme requisitos corporativos;
+- proteção de borda quando necessária;
+- Secrets Manager/KMS para segredos e chaves;
+- princípio do menor privilégio;
+- bancos e broker em rede não exposta diretamente à Internet;
 - criptografia em repouso suportada pelos serviços gerenciados;
-- autenticação/autorização serviço-a-serviço conforme plataforma.
+- autenticação serviço-a-serviço conforme padrão da plataforma corporativa.
+
+Não é escolhido um IdP específico porque o desafio não fornece essa informação.
 
 ## 9. Observabilidade
 
 Sinais mínimos:
-- request rate, error rate e latency;
-- health/readiness;
-- quantidade/idade de itens pendentes de publicação;
-- consumer lag/backlog;
-- retries e falhas persistentes;
-- freshness do consolidado;
-- correlation/trace ID do lançamento até o processamento.
 
-Alert thresholds dependem de SLOs ainda não fornecidos.
+- taxa de requisições, erros e latência;
+- saúde e prontidão;
+- quantidade e idade dos itens pendentes da Outbox;
+- atraso do consumidor e backlog;
+- tentativas e falhas persistentes;
+- última atualização/defasagem do consolidado;
+- identificador de correlação/rastreamento do lançamento até a consolidação.
+
+Os limiares de alerta dependem dos SLOs/SLA produtivos ainda não fornecidos.
 
 ## 10. Escalabilidade e desempenho
 
-- serviços stateless na camada HTTP;
-- scale-out independente conforme ADR-001;
+- serviços HTTP sem estado de sessão local;
+- escala horizontal independente conforme ADR-001;
 - índices orientados aos padrões de consulta;
-- partições/consumers do broker somente conforme necessidade de throughput e sem inventar requisito de ordenação;
-- cache não será usado inicialmente sem evidência de necessidade;
-- teste de 50 req/s será reproduzível e reportará sucesso/erro/latência;
-- o plano de teste declarará explicitamente qual operação do consolidado foi adotada para interpretar os 50 req/s e a semântica utilizada para medir a perda máxima de 5%.
+- partições/consumidores adicionais somente quando medições justificarem;
+- nenhum requisito de ordenação global foi inventado;
+- cache não é introduzido sem necessidade demonstrada;
+- o teste de 50 req/s será reproduzível e reportará sucesso, erro e latência;
+- a estratégia de testes declara a hipótese utilizada para interpretar a operação do consolidado e os 5% de perda.
 
-## 11. Arquitetura-alvo cloud
+## 11. Arquitetura-alvo AWS
 
-AWS será avaliada como referência de documentação detalhada no ADR de cloud, sem impedir portabilidade conceitual.
+A arquitetura-alvo utiliza AWS como plataforma de referência, conforme ADR-006 e `docs/07-infraestrutura/arquitetura-aws.md`.
 
-Capacidades necessárias na arquitetura-alvo:
-- edge protection/API ingress;
-- execução containerizada com múltiplas instâncias quando necessário;
-- PostgreSQL gerenciado;
-- broker/event streaming gerenciado;
-- secret/key management;
-- logs, métricas e tracing;
-- backups/PITR e HA conforme metas de RPO/RTO;
-- rede privada e controles de acesso.
+Principais componentes:
 
-Não serão declarados RTO/RPO/SLA que o desafio não forneceu.
+- Application Load Balancer para entrada HTTPS e balanceamento;
+- Amazon ECS + AWS Fargate para os quatro componentes executáveis;
+- Amazon RDS for PostgreSQL para persistência de cada contexto;
+- Amazon MSK para Kafka;
+- AWS Secrets Manager e KMS;
+- Amazon CloudWatch e OpenTelemetry;
+- Amazon ECR para imagens.
+
+A região `us-east-1` é usada somente como referência de precificação. A região produtiva é questão aberta.
+
+Não são declarados SLA, RTO ou RPO que o desafio não forneceu.
 
 ## 12. Arquitetura de transição — diferencial
 
-O enunciado não informa a existência de legado ou migração. Para demonstrar o diferencial solicitado de arquitetura de transição sem transformar uma hipótese em requisito, será apresentado separadamente um **cenário hipotético** de modernização.
+O desafio não informa a existência de legado ou migração. Para demonstrar o diferencial solicitado sem transformar hipótese em requisito, `arquitetura-transicao-hipotetica.md` apresenta separadamente um cenário hipotético de modernização.
 
-Nesse cenário hipotético, considera-se um monólito legado no qual Lançamentos e Consolidação compartilham processo/ciclo de vida e persistência, com risco de indisponibilidade conjunta e inconsistência/perda de dados em falhas. A arquitetura-alvo separa as duas capacidades em serviços independentes, com ownership de dados, persistência durável, integração assíncrona, publicação confiável e processamento idempotente.
+O cenário pressupõe, apenas para fins de análise, um sistema legado no qual Lançamentos e Consolidação compartilham ciclo de vida/persistência. A arquitetura-alvo demonstra como essas capacidades poderiam ser separadas.
 
-Esse cenário existe exclusivamente para demonstrar como a arquitetura proposta poderia ser utilizada em uma transição. **Não será criado um projeto de migração, plano de fases ou requisito de legado**, pois isso não faz parte do desafio.
-
-O desenho e os limites dessa hipótese estão em `arquitetura-transicao-hipotetica.md`.
+Não é afirmado que esse legado existe no Banco Carrefour e não é criado plano de migração fictício.
 
 ## 13. Custos — diferencial
 
-Será apresentada uma **estimativa preliminar de infraestrutura e licenciamento** para a arquitetura-alvo, baseada nas premissas disponíveis no desafio e em hipóteses de sizing explicitamente documentadas.
+`docs/07-infraestrutura/estimativa-custos.md` contém a estimativa econômica da arquitetura-alvo.
 
-Já existe informação suficiente para estimar uma ordem de grandeza a partir dos componentes propostos — dois serviços, PostgreSQL, integração assíncrona/event streaming, observabilidade, segurança e o cenário explícito de 50 req/s no consolidado. Entretanto, o enunciado não fornece volume diário, retenção, região cloud, SLA, RTO, RPO ou crescimento esperado.
+Ela apresenta:
 
-Por isso:
-- os valores serão apresentados como **estimativa e ordem de grandeza**, não como orçamento produtivo definitivo;
-- região, quantidade/tamanho de instâncias, armazenamento, retenção e premissas de disponibilidade serão declarados junto ao cálculo;
-- serão separados custos de computação, banco, mensageria/event streaming, observabilidade, rede/edge e demais serviços relevantes;
-- licenças comerciais serão identificadas quando aplicáveis; tecnologias open source não serão tratadas como custo zero de operação;
-- o custo de Kafka gerenciado será confrontado com alternativas mais simples, deixando explícito o trade-off entre retenção/replay/recuperação e custo operacional;
-- a estimativa detalhada será consolidada na `Infrastructure/Cost View` após o mapeamento da arquitetura-alvo para serviços AWS específicos.
+- premissas explícitas de dimensionamento;
+- serviço e configuração assumida;
+- quantidade;
+- custo unitário estimado;
+- subtotal por componente;
+- total mensal estimado;
+- cenário enxuto e cenário de produção de referência;
+- comparação econômica de Kafka/MSK com SQS;
+- licenciamento;
+- limitações e informações necessárias para um orçamento produtivo.
 
-A ausência das métricas ainda não fornecidas será registrada como limitação da estimativa, evitando falsa precisão sem deixar de atender ao diferencial do desafio.
+Os valores são estimativas arquiteturais, não orçamento comercial definitivo.
 
-## 14. Decisões ainda necessárias
+## 14. Decisões arquiteturais consolidadas
 
-Próximos ADRs/documentos antes da implementação:
-- cloud de referência e mapeamento local→target;
-- segurança/autenticação local e target;
-- estratégia de tratamento de falhas persistentes/DLQ;
-- contrato/schema e versionamento de eventos;
-- estrutura interna .NET/Clean/Hexagonal no SDD;
-- infraestrutura local e target, incluindo `Infrastructure/Cost View` com premissas e estimativa preliminar;
-- Data, Integration, Security, Resilience e Observability Views.
+| Tema | Decisão | Referência |
+|---|---|---|
+| Decomposição | dois serviços independentes alinhados aos contextos de Lançamentos e Consolidação | ADR-001 |
+| Integração | comunicação assíncrona orientada a eventos | ADR-002 |
+| Persistência | PostgreSQL com propriedade de dados por contexto | ADR-003 |
+| Publicação confiável | Transactional Outbox | ADR-004 |
+| Idempotência | chave na entrada e registro de eventos processados no consumidor | ADR-005 |
+| Plataforma de referência | AWS ECS/Fargate | ADR-006 |
+| Mensageria | Kafka/MSK mantido por retenção/reprocessamento, com SQS documentado como alternativa econômica | ADR-007 |
+| Estrutura interna .NET | separação Domain/Application/Infrastructure/API e contratos de integração | SDD |
+| Testes | unitários, integração, API, resiliência e carga | estratégia de testes |
 
-## 15. Critérios para aceitar esta arquitetura
+Não existem, neste momento, decisões arquiteturais essenciais pendentes que impeçam o início da implementação. Questões dependentes de informações não fornecidas pelo desafio permanecem em `questoes-em-aberto.md`.
 
-Antes de considerar o DAS aprovado, validar:
-- fronteiras de domínio/capacidades;
-- dois deployables independentes;
+## 15. Critérios para considerar a arquitetura documental pronta
+
+Antes do início da implementação, devem estar validados:
+
+- capacidades e fronteiras de domínio;
+- independência entre Lançamentos e Consolidação;
 - integração assíncrona;
-- Kafka como escolha justificada, não por throughput;
-- PostgreSQL como persistência;
+- persistência e propriedade dos dados;
 - Transactional Outbox;
 - idempotência na entrada e no consumo;
-- arquitetura de transição explicitamente hipotética e limitada ao diferencial;
-- estimativa de custos tratada como diferencial com premissas explícitas e sem falsa precisão;
-- ausência deliberada de regras financeiras não fornecidas pelo desafio.
+- cenários de falha e recuperação;
+- segurança, observabilidade e escalabilidade;
+- arquitetura AWS;
+- estimativa de custos com premissas e total;
+- SDD e C4 de componentes;
+- estratégia de testes;
+- matrizes de conformidade e rastreabilidade;
+- ausência de regras financeiras não fornecidas pelo desafio;
+- revisão transversal de todos os documentos.
+
+A implementação somente será iniciada após a validação desta documentação pelo responsável pela entrega.

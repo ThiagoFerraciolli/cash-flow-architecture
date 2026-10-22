@@ -1,61 +1,30 @@
 # ADR-004 — Publicação confiável com Transactional Outbox
 
-- **Status:** PROPOSTO — aguardando validação
+- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
 - **Drivers:** RNF-004, ASR-002
 - **Dependências:** ADR-002, ADR-003
 
 ## Contexto
 
-Após confirmar um lançamento, precisamos preservar tanto o fato financeiro quanto a possibilidade de ele ser refletido no consolidado.
+Persistir um lançamento no PostgreSQL e publicar diretamente em SQS são dois recursos independentes. Um dual write ingênuo pode deixar lançamento sem evento ou evento sem lançamento.
 
-Uma implementação ingênua cria dual write:
-1. grava lançamento no PostgreSQL;
-2. publica evento no Kafka.
+## Decisão
 
-Se a aplicação falhar entre as duas operações, o lançamento pode existir sem evento. Inverter a ordem cria o problema oposto: evento publicado para uma transação que depois não foi persistida.
+Adotar **Transactional Outbox**. `FinancialTransaction`, `IdempotencyRecord` e `OutboxMessage` são persistidos no mesmo commit local. Um **Transactions Worker / Outbox Publisher** separado da API captura pendências e publica em SQS.
 
-## Alternativas avaliadas
+Múltiplos publishers usam captura de lote com `FOR UPDATE SKIP LOCKED` (ou equivalente PostgreSQL). Após `SendMessage` confirmado, o registro recebe `published_at`.
 
-### A. Gravar no banco e publicar diretamente no broker
+Campos operacionais mínimos: `attempts`, `next_attempt_at`, `last_error`, `published_at` e metadados de tracing.
 
-Simples, mas possui janela de inconsistência entre dois recursos transacionais independentes.
+## Falhas e limites
 
-### B. Transação distribuída/2PC
+- falha da fila não afeta lançamento já confirmado;
+- publisher aplica retry com backoff/jitter;
+- falha após envio e antes de `published_at` pode duplicar publicação;
+- consumidor idempotente é obrigatório;
+- Outbox publicada tem retenção/limpeza configurável; pendências nunca são removidas pela limpeza;
+- Outbox não oferece exactly-once, backup ou DR.
 
-Pode coordenar recursos compatíveis, porém aumenta acoplamento, complexidade e custo operacional; não é uma escolha adequada como padrão para este desafio.
+## Evidência posterior
 
-### C. Transactional Outbox
-
-Persistir lançamento e registro de evento na mesma transação local e publicar posteriormente por processo separado. Elimina a janela de dual write entre o dado de negócio e a intenção durável de publicação, ao custo de processamento adicional e necessidade de limpeza/monitoramento.
-
-### D. CDC sobre log do banco
-
-Reduz código de polling e pode ser robusto, mas adiciona plataforma de CDC e complexidade operacional desnecessária para o MVP. Continua sendo evolução possível para maior escala.
-
-## Decisão proposta
-
-Adotar **Transactional Outbox** no Transactions Service.
-
-Na mesma transação PostgreSQL:
-
-```text
-BEGIN
-  INSERT financial_transaction
-  INSERT outbox_event
-COMMIT
-```
-
-Um publisher independente lê eventos pendentes, publica no broker e registra o estado de publicação.
-
-## Garantias e limites
-
-- a API só confirma sucesso após commit local;
-- lançamento e intenção de publicação são atômicos no banco local;
-- publicação pode ocorrer mais de uma vez se houver falha entre envio e atualização do estado;
-- por isso o consumidor continua precisando ser idempotente;
-- Outbox não substitui backup/DR nem define RPO produtivo;
-- Outbox não cria exactly-once ponta a ponta.
-
-## Evidência esperada
-
-Teste de integração deve demonstrar que um lançamento confirmado permanece recuperável para publicação mesmo quando o broker ou a consolidação estiver indisponível.
+Testes devem cobrir fila indisponível, publishers concorrentes, crash window e recuperação. `ACEITO` descreve a decisão; somente evidência executada valida o comportamento.

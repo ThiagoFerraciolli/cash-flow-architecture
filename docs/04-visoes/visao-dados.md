@@ -10,6 +10,8 @@ Cada serviço possui banco, credenciais e migrations próprios. Não há leitura
 | idempotency_records | PK (issuer, client_id, key); request_hash; canonical_version; transaction_id UNIQUE; response_status; response_body mínimo; created_at | Retido junto ao fato, sem expiração |
 | outbox_messages | event_id PK; aggregate_id FK; payload; headers; state; published_at; attempts; next_attempt_at; lease_token; lease_until; last_error | Limpar apenas publicados há mais de 30 dias |
 
+Estados normativos da Outbox: `PENDING` para item elegível ou aguardando nova tentativa, `PUBLISHED` após confirmação do broker e persistência de `published_at`, e `SUSPENDED` quando o item deixa o ciclo automático após falhas persistentes e exige ação operacional. Lease não cria um quarto estado: `lease_token` e `lease_until` representam apenas a reserva temporária de um item `PENDING`.
+
 ```mermaid
 erDiagram
     FINANCIAL_TRANSACTION ||--o| OUTBOX_MESSAGE : "produz; Outbox publicada pode ser limpa"

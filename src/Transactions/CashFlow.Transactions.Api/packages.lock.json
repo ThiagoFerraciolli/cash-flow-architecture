@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "cashflow.transactions.application": {
+        "type": "Project",
+        "dependencies": {
+          "CashFlow.Transactions.Domain": "[1.0.0, )"
+        }
+      },
+      "cashflow.transactions.domain": {
+        "type": "Project"
+      },
+      "cashflow.transactions.infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "CashFlow.Transactions.Application": "[1.0.0, )",
+          "CashFlow.Transactions.Domain": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

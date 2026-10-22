@@ -1,1 +1,5 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../CashFlow.Transactions.Domain/CashFlow.Transactions.Domain.csproj" />
+  </ItemGroup>
+</Project>

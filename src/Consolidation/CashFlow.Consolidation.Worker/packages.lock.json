@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "cashflow.consolidation.application": {
+        "type": "Project",
+        "dependencies": {
+          "CashFlow.Consolidation.Domain": "[1.0.0, )"
+        }
+      },
+      "cashflow.consolidation.domain": {
+        "type": "Project"
+      },
+      "cashflow.consolidation.infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "CashFlow.Consolidation.Application": "[1.0.0, )",
+          "CashFlow.Consolidation.Domain": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

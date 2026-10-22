@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="10.0.0" />
+    <PackageReference Include="RabbitMQ.Client" Version="7.2.2" />
     <ProjectReference Include="../CashFlow.Transactions.Application/CashFlow.Transactions.Application.csproj" />
     <ProjectReference Include="../CashFlow.Transactions.Domain/CashFlow.Transactions.Domain.csproj" />
   </ItemGroup>

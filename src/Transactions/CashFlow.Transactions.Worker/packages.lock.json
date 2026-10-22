@@ -7,6 +7,11 @@
         "resolved": "10.0.0",
         "contentHash": "xZAYhPOU2rUIFpV48xsqhCx9vXs6Y+0jX2LCoSEfDFYMw9jtAOUk3iQsCnDLrFIv9NT3JGMihn7nnuZsPKqJmA=="
       },
+      "RabbitMQ.Client": {
+        "type": "Transitive",
+        "resolved": "7.2.2",
+        "contentHash": "k4b6RnTXpLbsF96V93ooNYxgPMnoA2tEm24B6AXNJr1mG8wwNYdA1XJtgU66L5xqeGyveS7SJriRzlX3cbqQNA=="
+      },
       "cashflow.transactions.application": {
         "type": "Project",
         "dependencies": {
@@ -21,7 +26,8 @@
         "dependencies": {
           "CashFlow.Transactions.Application": "[1.0.0, )",
           "CashFlow.Transactions.Domain": "[1.0.0, )",
-          "Npgsql": "[10.0.0, )"
+          "Npgsql": "[10.0.0, )",
+          "RabbitMQ.Client": "[7.2.2, )"
         }
       }
     }

@@ -1,8 +1,8 @@
 # Execução local — especificação do ambiente
 
-## Estado executável atual — Fase 3
+## Estado executável atual — Fase 4
 
-O `compose.yaml` desta branch executa `postgres` e `transactions-api`, além de um job `migrate` que encerra após aplicar as migrations. Requer Docker Engine com Compose v2. Na raiz do repositório:
+O `compose.yaml` desta branch executa quatro workloads permanentes: `postgres`, `rabbitmq`, `transactions-api` e `transactions-worker`. O job `migrate` encerra após aplicar as migrations. Transactions API e Transactions Worker são processos e containers independentes. Requer Docker Engine com Compose v2. Na raiz do repositório:
 
 ```sh
 docker compose up -d --build
@@ -11,7 +11,7 @@ curl --fail http://127.0.0.1:8081/health/live
 curl --fail http://127.0.0.1:8081/health/ready
 ```
 
-A Transactions API está em `127.0.0.1:8081`, e o PostgreSQL local está em `127.0.0.1:5433`. Dentro do Compose, a API conecta-se a `postgres:5432`. O fuso de negócio padrão é `America/Sao_Paulo`. O banco e usuário locais são `cashflow`; a senha padrão `cashflow_local_only` serve apenas ao desenvolvimento e pode ser substituída por `POSTGRES_PASSWORD` no ambiente ou em `.env` local ignorado pelo Git.
+A Transactions API está em `127.0.0.1:8081`, o PostgreSQL em `127.0.0.1:5433`, o AMQP RabbitMQ em `127.0.0.1:5672` e a interface de gestão RabbitMQ em `127.0.0.1:15672`. Dentro do Compose, API e Worker conectam-se a `postgres:5432`, e o Worker conecta-se a `rabbitmq:5672`. O fuso de negócio padrão é `America/Sao_Paulo`. O banco e usuário locais são `cashflow`; a senha padrão `cashflow_local_only` serve apenas ao desenvolvimento e pode ser substituída por `POSTGRES_PASSWORD` no ambiente ou em `.env` local ignorado pelo Git. A credencial RabbitMQ local usa `RABBITMQ_PASSWORD` da mesma forma.
 
 Os dados persistem em `./runtime-data/postgres`, ignorado pelo Git. Após o PostgreSQL ficar saudável, o job `migrate` aplica `001_financial_transactions.sql` e `002_idempotency_outbox.sql` em ordem; a API aguarda o término bem-sucedido do job. Isso também atualiza um banco local criado na Fase 2 sem apagar seus lançamentos. O job local não define a topologia de migrations de produção.
 
@@ -29,24 +29,27 @@ curl --fail-with-body --include http://127.0.0.1:8081/transactions \
 curl --fail-with-body http://127.0.0.1:8081/transactions/SEU_ID
 ```
 
-Repetir o mesmo POST com a mesma chave e identidade retorna `201` com `Idempotent-Replayed: true` e o mesmo ID. Reutilizar a chave com outro comando retorna `409`. Cada primeira criação confirmada grava, em uma transação PostgreSQL, o lançamento, o registro de idempotência e uma mensagem Outbox em estado `PENDING`. O Outbox ainda não é publicado. Lançamentos criados antes da Fase 3 permanecem no banco sem uma identidade histórica fabricada.
+Repetir o mesmo POST com a mesma chave e identidade retorna `201` com `Idempotent-Replayed: true` e o mesmo ID. Reutilizar a chave com outro comando retorna `409`. Cada primeira criação confirmada grava, em uma transação PostgreSQL, o lançamento, o registro de idempotência e uma mensagem Outbox em estado `PENDING`. O Worker reserva essa mensagem no PostgreSQL, publica o `TransactionCreatedV1` persistente com `mandatory` e publisher confirm no exchange direto durável `cashflow.events`, routing key `transaction.created.v1`, e só então marca `PUBLISHED`. A fila `consolidation.transactions.v1` é quorum e durável; não há consumidor de Consolidação nesta fase. A entrega é **at-least-once**: uma falha entre confirmação e marcação pode republicar o mesmo `eventId`. Lançamentos criados antes da Fase 3 permanecem no banco sem uma identidade histórica fabricada.
 
-Para executar o teste de integração contra PostgreSQL real:
+O Worker consulta até 20 itens por segundo, publica até 4 em paralelo e usa lease de 60 s com renovação a cada 20 s. Falhas sistêmicas do broker abrem circuito com backoff e deixam itens recuperáveis sem consumir as 20 tentativas de falha isolada. Para demonstrar independência da API, pare somente `rabbitmq`, crie um lançamento com JWT válido e observe POST `201` e Outbox `PENDING`; reinicie o broker e aguarde `PUBLISHED`. `/health/ready` da API depende do PostgreSQL, não do broker. O Worker expõe liveness e readiness privadas no container; sua readiness reflete banco e publicador.
+
+Para executar os testes de integração contra PostgreSQL e RabbitMQ reais:
 
 ```sh
 CASHFLOW_TEST_POSTGRES='Host=127.0.0.1;Port=5433;Database=cashflow;Username=cashflow;Password=cashflow_local_only' \
+  CASHFLOW_TEST_RABBITMQ='amqp://cashflow:cashflow_local_only@127.0.0.1:5672/' \
   dotnet test tests/CashFlow.Transactions.IntegrationTests --no-build
 ```
 
-Ajuste a senha no comando se configurar `POSTGRES_PASSWORD`. O teste cria e remove um schema isolado.
+Ajuste as senhas no comando se configurar `POSTGRES_PASSWORD` ou `RABBITMQ_PASSWORD`. Os testes criam e removem schemas PostgreSQL e filas RabbitMQ isolados.
 
-`docker compose down` remove containers e rede, mas preserva `./runtime-data/postgres`; `docker compose up -d` os recria com os mesmos dados. Para reset explicitamente destrutivo, execute `docker compose down` e remova manualmente `./runtime-data/postgres` antes de subir o ambiente novamente.
+`docker compose down` remove containers e rede, mas preserva `./runtime-data/postgres` e `./runtime-data/rabbitmq`; `docker compose up -d` os recria com os mesmos dados e mensagens persistentes. Para reset explicitamente destrutivo, execute `docker compose down` e remova manualmente esses diretórios antes de subir o ambiente novamente.
 
 ## Arquitetura-alvo — especificação futura
 
 Há dois serviços/bounded contexts, Transactions e Consolidation, com quatro deployables independentes: Transactions API, Transactions Worker/Outbox Publisher, Consolidation API e Consolidation Worker. API e Worker não são combinados no mesmo container. PostgreSQL e RabbitMQ completam a topologia mínima de seis workloads principais. A especificação detalhada abaixo prevê também infraestrutura e ferramentas auxiliares, inclusive ownership independente dos dados de cada contexto; esta seção não altera a decisão de deployment físico futuro.
 
-Os comandos e exemplos das seções seguintes dependem de capacidades ainda não implementadas nesta branch. RabbitMQ, Workers, Consolidation, Keycloak, observabilidade e ferramentas futuras não fazem parte do Compose executável da Fase 3.
+Os comandos e exemplos das seções seguintes dependem de capacidades ainda não implementadas nesta branch. O consumidor de Consolidação, `ProcessedTransaction`, a consolidação diária, retry/DLQ do consumidor, SQS operacional, Cognito, Keycloak completo, Terraform, deployment AWS e observabilidade completa não fazem parte do Compose executável da Fase 4. A arquitetura AWS permanece documentada como alvo, sem homologação nesta fase.
 
 ## Pré-requisitos e composição
 

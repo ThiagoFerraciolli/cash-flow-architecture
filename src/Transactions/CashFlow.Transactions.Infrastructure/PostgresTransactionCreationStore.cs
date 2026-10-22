@@ -1,4 +1,5 @@
 using System.Data;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using CashFlow.Transactions.Application;
@@ -93,6 +94,13 @@ public sealed class PostgresTransactionCreationStore(NpgsqlDataSource dataSource
             amount = candidate.Amount.ToString("F2", CultureInfo.InvariantCulture),
             businessDate = candidate.BusinessDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
         });
+        var headers = new Dictionary<string, string> { ["correlation-id"] = correlationId };
+        if (Activity.Current is { IdFormat: ActivityIdFormat.W3C, Id: not null } activity)
+        {
+            headers["traceparent"] = activity.Id;
+            if (!string.IsNullOrWhiteSpace(activity.TraceStateString))
+                headers["tracestate"] = activity.TraceStateString;
+        }
         await using (var insertOutbox = new NpgsqlCommand("""
             INSERT INTO outbox_messages
               (event_id, aggregate_id, payload, headers, state, created_at, next_attempt_at)
@@ -102,8 +110,7 @@ public sealed class PostgresTransactionCreationStore(NpgsqlDataSource dataSource
             insertOutbox.Parameters.AddWithValue(candidate.CreationEventId);
             insertOutbox.Parameters.AddWithValue(candidate.Id);
             insertOutbox.Parameters.AddWithValue(NpgsqlDbType.Jsonb, payload);
-            insertOutbox.Parameters.AddWithValue(NpgsqlDbType.Jsonb,
-                JsonSerializer.Serialize(new Dictionary<string, string> { ["correlation-id"] = correlationId }));
+            insertOutbox.Parameters.AddWithValue(NpgsqlDbType.Jsonb, JsonSerializer.Serialize(headers));
             insertOutbox.Parameters.AddWithValue(candidate.CreatedAt);
             await insertOutbox.ExecuteNonQueryAsync(cancellationToken);
         }

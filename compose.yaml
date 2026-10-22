@@ -28,6 +28,25 @@ services:
         condition: service_healthy
     restart: "no"
 
+  rabbitmq:
+    image: rabbitmq:4.1.8-management
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_NODENAME: rabbit@rabbitmq
+      RABBITMQ_DEFAULT_USER: cashflow
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-cashflow_local_only}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - ./runtime-data/rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   transactions-api:
     build:
       context: .
@@ -45,6 +64,25 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  transactions-worker:
+    build:
+      context: .
+      dockerfile: src/Transactions/CashFlow.Transactions.Worker/Dockerfile
+    environment:
+      ConnectionStrings__Transactions: Host=postgres;Port=5432;Database=cashflow;Username=cashflow;Password=${POSTGRES_PASSWORD:-cashflow_local_only}
+      RabbitMq__Uri: amqp://cashflow:${RABBITMQ_PASSWORD:-cashflow_local_only}@rabbitmq:5672/
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
       interval: 5s

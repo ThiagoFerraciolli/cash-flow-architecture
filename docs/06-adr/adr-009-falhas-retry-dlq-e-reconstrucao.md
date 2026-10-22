@@ -1,60 +1,22 @@
-# ADR-009 — Tratamento de falhas, retry, DLQ, reconciliação e reconstrução
+# ADR-009 — Recuperação verificável a partir da fonte financeira
 
-- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO — sujeito à validação humana da branch
-- **Drivers:** RNF-005, RNF-007, RNF-010, ASR-003, ASR-005, ASR-009
-- **Relacionados:** ADR-002, ADR-004, ADR-005, ADR-007, ADR-008
-
-## Contexto
-
-A entrega é at-least-once. Falhas transitórias precisam permitir nova tentativa, mensagens que não podem ser processadas precisam ser isoladas e divergências silenciosas precisam ser detectáveis. A fila não deve ser tratada como histórico financeiro nem como única estratégia de reconstrução.
-
-## Alternativas
-
-1. **Retry infinito para qualquer erro** — simples, mas poison messages podem permanecer indefinidamente e degradar o fluxo.
-2. **Descartar após N tentativas** — evita bloqueio, porém cria perda silenciosa e viola a necessidade de recuperação.
-3. **Retry controlado + DLQ/redrive + reconciliação + rebuild pela fonte de verdade** — adiciona disciplina operacional, mas cobre os modos de falha relevantes sem exigir plataforma de streaming.
+- **Estado:** APROVADO
+- **Direcionadores:** RNF-004/005/006/007/010; ASR-002/003/004/005/009.
 
 ## Decisão
 
-### Publisher da Outbox
+Combinar retentativas limitadas, isolamento de falhas, reconciliação consistente e reconstrução integral em nova geração. O algoritmo normativo está em [recuperação e reconciliação](../07-infraestrutura/recuperacao-e-reconciliacao.md); tempos e limites em [parâmetros](../07-infraestrutura/parametros-operacionais.md).
 
-Falha de envio mantém `published_at` nulo. `attempts`, `next_attempt_at` e `last_error` registram o estado operacional. Nova tentativa usa backoff com jitter. Valores exatos de intervalo, limite e retenção são configuração do ambiente, pois SLA/SLO não foram fornecidos.
+A Outbox usa reserva e suspensão controlada (ADR-004). O consumidor diferencia falha transitória de contrato inválido. Adaptadores implementam confirmação, retry e DLQ conforme ADR-010. Nenhum caminho de erro financeiro pode confirmar e descartar silenciosamente uma mensagem.
 
-Falha depois de `SendMessage` e antes de marcar `published_at` pode republicar o mesmo `eventId`; isso é esperado e seguro pelo consumidor idempotente.
+A fila é transporte temporário. Expiração SQS, perda de volume local ou mensagem ausente são recuperáveis a partir dos lançamentos persistidos. Reconciliação não depende da existência da Outbox publicada. Deduplicação financeira ativa não expira.
 
-### Consolidation Worker
+## Reconstrução aprovada
 
-- falha transitória: não executar `DeleteMessage`; a mensagem volta após `VisibilityTimeout`;
-- mensagem inválida ou falha persistente: a redrive policy da SQS a encaminha para a DLQ após `maxReceiveCount` configurado;
-- DLQ não vazia gera sinal operacional e exige triagem;
-- depois de corrigida a causa, o redrive retorna mensagens à fila principal;
-- idempotência por `eventId` torna redelivery/redrive seguros.
+Pausar processamento por controle persistente; manter Lançamentos aceitando escrita; obter snapshot consistente de todos os fatos; construir totais e identidades na geração nova; validar; trocar geração atomicamente; retomar consumo. Mensagens anteriores ao snapshot tornam-se duplicatas; posteriores aplicam normalmente. A pausa começa antes do snapshot para não perder efeitos já confirmados pelo consumidor durante a construção.
 
-Não são fixados números arbitrários de tentativas, visibility timeout ou retenção como requisitos produtivos. Eles devem ser medidos e configurados por ambiente.
+## Alternativas e consequências
 
-## Reconciliação
+Replay exclusivo da fila foi rejeitado por retenção finita. Limpar projeção e deduplicação em produção foi rejeitado por janela de perda/duplicidade. Rebuild concorrente sem captura incremental foi rejeitado porque poderia perder eventos já confirmados. A pausa controlada é mais simples e verificável, ao custo de defasagem temporária e espaço para duas gerações.
 
-O MVP deve possuir procedimento/teste que compare, por `BusinessDate`, contagem, total de créditos e total de débitos entre `financial_transactions` e `daily_consolidations`. Divergência gera investigação e, quando necessário, rebuild controlado.
-
-O procedimento pode acessar os dois bancos como ferramenta operacional/E2E; isso não autoriza acesso cruzado entre os serviços no fluxo de negócio normal.
-
-## Reconstrução
-
-`financial_transactions` é a fonte de verdade deste escopo. A reconstrução não depende da retenção histórica da SQS.
-
-Para um intervalo afetado, a operação deve:
-1. controlar concorrência com o consumo normal para evitar dupla aplicação durante o rebuild;
-2. obter os lançamentos da fonte de verdade;
-3. reconstruir a projeção de forma determinística, por processo operacional dedicado ou reemissão controlada;
-4. preservar/renovar identificadores de processamento conforme a estratégia escolhida, sem burlar a deduplicação acidentalmente;
-5. validar o resultado por reconciliação antes de encerrar a operação.
-
-O mecanismo físico exato do comando de rebuild fica para a implementação/runbook. O ADR fixa a propriedade arquitetural: reconstrução parte dos lançamentos e termina com reconciliação.
-
-## Consequências
-
-- falhas persistentes deixam de ser perda silenciosa;
-- SQS + DLQ cobre recuperação operacional sem exigir Kafka;
-- observabilidade precisa incluir idade/profundidade da fila, Outbox pendente e DLQ;
-- testes devem exercitar falha de broker, redelivery, DLQ/redrive, concorrência e reconciliação;
-- rebuild exige operação controlada e não deve rodar concorrentemente de forma ingênua com o consumidor normal.
+A geração anterior serve para auditoria; não pode ser reativada depois da retomada sem nova reconstrução. Testes incluem falha do processo em cada etapa, evento em trânsito, expiração de fila, restauração de banco e comparação consistente.

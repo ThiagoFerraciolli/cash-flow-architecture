@@ -1,48 +1,29 @@
-# Matriz de Rastreabilidade
+# Matriz de rastreabilidade
 
-- **Status:** PRONTA PARA VALIDAÇÃO HUMANA — evidências de execução ainda pendentes
+**Estado: DOCUMENTAÇÃO APROVADA.** Cadeia: origem → requisito → ASR → decisão → desenho → teste. Os IDs Txx referenciam a estratégia de testes; todos dependem de implementação e execução futuras.
 
-Cadeia: `Requisito → RF/RNF → ASR → decisão → desenho → teste/evidência`.
+| Origem/requisito | ASR | Decisão e representação | Testes |
+|---|---|---|---|
+| RN-001 / RF-001 | 002/004/007 | ADR-003/004/005; SDD; contrato POST | T01/T02/T03/T13 |
+| RF-002/003 | 007 | Contratos de consulta/paginação; visão de dados | T01/T13/T19 |
+| RN-002 / RF-004 | 003/004/005 | ADR-002/005/008/009/010; consumidor e geração | T05/T08–T12 |
+| RF-005/006 | 003/006 | Contratos de projeção eventual; consulta por data/período | T01/T15/T19 |
+| RNF-001/013 | 001/008 | ADR-001; bancos/processos separados; local/AWS | T06/T07/T17 |
+| RNF-002/003 | 006 | Parâmetros de carga e estratégia k6 | T15 |
+| RNF-004 | 002 | ADR-003/004; commit e Outbox; backup | T03/T07/T08/T17 |
+| RNF-005 | 003 | Contrato completeness UNKNOWN; recuperação | T10/T11/T16 |
+| RNF-006 | 004 | ADR-005/008; identidades financeiras sem expiração | T02/T05/T08/T12/T19 |
+| RNF-007 | 005/010 | ADR-009; DLQ e snapshot/geração | T09–T12/T17 |
+| RNF-008 | 006/008 | ADR-006; autoscaling/UPSERT/reserva | T04/T05/T15/T16 |
+| RNF-009/012 | 007 | Segurança; IAM/JWT/TLS/secrets | T13/T18 |
+| RNF-010/011 | 009 | Observabilidade/auditoria e parâmetros | T01/T10/T11/T14 |
+| RNF-014 | 008 | SDD/componentes; ADR-010/adaptadores | T19/T20 |
+| Execução local dos PDFs | 001/008 | Guia Compose/RabbitMQ/Keycloak | T18 e suíte local |
+| Produção AWS | 008/010 | AWS/implantação/custos/recuperação | Suíte SQS real e T17 |
+| Premissas PRE-007/008 | 003/004 | Contratos e limites monetários/temporais | T01/T19 |
 
-| Origem | Necessidade | ASR | Decisão/desenho | Evidência futura |
-|---|---|---|---|---|
-| RN-001 / RF-001 | registrar débito/crédito | ASR-002,004 | PostgreSQL + idempotência + Outbox | unitário/API/integração |
-| RF-002/003 | consultar lançamentos | — | ownership Transactions + paginação | API |
-| RN-002 / RF-004 | consolidado diário | ASR-001,003,004,005 | 2 serviços; SQS; `TransactionCreatedV1`; consumidor idempotente; `BusinessDate` | E2E/convergência/contrato |
-| RF-005/006 | consultar consolidado | ASR-006 | projeção própria; data sem movimento = zero (PRE-009) | API/carga |
-| RNF-001 | queda da Consolidação não interrompe lançamentos | ASR-001,008 | ADR-001/002/004; 2 serviços/4 processos | fault test |
-| RNF-002/003 | 50 req/s e <=5% falha/perda | ASR-006 | escala independente; hipótese explícita `GET /consolidations/{date}` | k6 + relatório |
-| RNF-004 | lançamento confirmado recuperável | ASR-002 | PostgreSQL + Outbox | falha SQS + recuperação |
-| RNF-005 | convergência após defasagem | ASR-003 | SQS backlog + ADR-009 + reconciliação | atraso/retomada |
-| RNF-006 | sem dupla contabilização | ASR-004 | ADR-005/008; idempotência HTTP + `ProcessedEvent` | replay/redelivery/concorrência/contrato |
-| RNF-007 | recuperar pendências | ASR-005 | ADR-004/009; Outbox + SQS + DLQ/redrive + rebuild pela fonte | fault/DLQ/rebuild |
-| RNF-008 | escalabilidade | ASR-006,008 | ECS/Fargate; escala por processo; UPSERT/SKIP LOCKED | carga/concorrência |
-| RNF-009 | segurança | ASR-007 | TLS/OIDC quando definido/IAM mínimo/secrets | configuração/testes |
-| RNF-010 | observabilidade | ASR-009 | OTel/CloudWatch + métricas Outbox/SQS/DLQ | sinais em cenários de falha |
-| RNF-011 | auditabilidade técnica | ASR-009 | correlation/transaction/event ids + fonte financeira persistida | traces/logs sanitizados |
-| RNF-012 | configuração/segredos | ASR-007 | externalização + Secrets Manager/KMS | revisão de config |
-| RNF-013 | isolamento de falhas | ASR-001,008 | 2 serviços; bancos com ownership; 4 processos | indisponibilidade independente |
-| RNF-014 | baixo acoplamento | — | ports/adapters; domínio sem SDK AWS; contrato independente do broker | architecture tests/revisão |
-| QRNF-001/002/003/008 | metas produtivas ausentes | ASR-010 | não inventar SLA/RTO/RPO/DR | decisão futura |
+## Fontes principais
 
-## Decisões principais
+Regras de API: contratos-http. Evento: ADR-008. Idempotência: ADR-005. Operação de mensageria: ADR-010. Reserva Outbox: ADR-004. Recuperação: recuperacao-e-reconciliacao. Defaults/metas: parametros-operacionais. As visões explicativas não redefinem esses contratos.
 
-| Decisão | Por quê | Referência |
-|---|---|---|
-| 2 serviços / 4 processos | isolamento de disponibilidade e processamento assíncrono independente | ADR-001 |
-| SQS Standard + DLQ | atende desacoplamento/retry/backlog com menor complexidade; Kafka não é requisito | ADR-002/007 |
-| PostgreSQL por contexto | atomicidade, constraints e ownership | ADR-003 |
-| Transactional Outbox | elimina dual write ingênuo | ADR-004 |
-| idempotência na entrada e consumo | retries/redelivery seguros | ADR-005 |
-| ECS/Fargate | containerização sem complexidade de EKS não requerida | ADR-006 |
-| contrato `TransactionCreatedV1` | versionamento explícito, precisão monetária e baixo acoplamento | ADR-008 |
-| retry/DLQ/reconciliação/rebuild | recuperação observável sem tratar fila como histórico financeiro | ADR-009 |
-| `BusinessDate` calculado uma vez | consistência temporal entre serviços | PRE-008 / ADR-008 / SDD |
-
-## Itens deliberadamente abertos
-
-SLA/SLO, RTO/RPO, DR/cross-region, região produtiva, retenções produtivas, volume diário/crescimento, IdP/RBAC corporativo, timezone/calendário/fechamento definitivos e limites operacionais de retry/retention.
-
-Kafka não é mais uma decisão pendente do MVP: SQS é a escolha vigente. Kafka só é reavaliado se novos requisitos justificarem suas capacidades. Defaults específicos sugeridos no material alternativo não foram promovidos a requisitos sem evidência do case.
-
-Nenhuma linha de evidência deve ser marcada como validada antes da execução correspondente.
+Relatórios futuros devem registrar commit, ambiente e resultado em docs/08-testes. Nenhuma execução é declarada validada nesta etapa documental.

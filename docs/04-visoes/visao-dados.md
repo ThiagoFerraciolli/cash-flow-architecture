@@ -1,127 +1,45 @@
-# Data View
+# Visão de dados
 
-- **Status:** EM REVISÃO FINAL — aguardando validação humana
+**Estado: DOCUMENTAÇÃO APROVADA.** Cada serviço possui banco, credenciais e migrations próprios. Não há leitura cruzada no fluxo de negócio. Acesso excepcional de recuperação usa identidade operacional dedicada.
 
-## 1. Princípios
+## Lançamentos
 
-1. `financial_transactions` é a fonte de verdade financeira deste escopo.
-2. O consolidado diário é uma projeção reconstruível a partir dos lançamentos.
-3. Cada contexto possui ownership de dados; não há leitura cruzada no fluxo normal.
-4. Lançamento + idempotência + Outbox são atômicos localmente.
-5. `ProcessedEvent` + atualização da projeção são atômicos localmente.
-6. Dados técnicos de confiabilidade têm ciclo de vida próprio e não contaminam a entidade financeira.
-
-## 2. Modelo lógico — Transactions
+| Tabela | Chaves e dados principais | Ciclo de vida |
+|---|---|---|
+| financial_transactions | id UUID PK; creation_event_id UUID UNIQUE; type; amount numeric(14,2); description; occurred_at; business_date; created_at; actor_issuer; actor_client_id | Imutável, sem limpeza automática |
+| idempotency_records | PK (issuer, client_id, key); request_hash; canonical_version; transaction_id UNIQUE; response_status; response_body mínimo; created_at | Retido junto ao fato, sem expiração |
+| outbox_messages | event_id PK; aggregate_id FK; payload; headers; state; published_at; attempts; next_attempt_at; lease_token; lease_until; last_error | Limpar apenas publicados há mais de 30 dias |
 
 ```mermaid
 erDiagram
-    FINANCIAL_TRANSACTION ||--|| OUTBOX_MESSAGE : produces
-    FINANCIAL_TRANSACTION ||--|| IDEMPOTENCY_RECORD : created_by
-
-    FINANCIAL_TRANSACTION {
-      uuid id PK
-      string type
-      decimal amount
-      string description
-      timestamptz occurred_at
-      date business_date
-      timestamptz created_at
-    }
-
-    IDEMPOTENCY_RECORD {
-      string key PK
-      string request_hash
-      uuid transaction_id UK
-      int response_status
-      json response_body
-      timestamptz created_at
-      timestamptz expires_at
-    }
-
-    OUTBOX_MESSAGE {
-      uuid event_id PK
-      uuid aggregate_id
-      string event_type
-      json payload
-      json headers
-      timestamptz occurred_at
-      timestamptz published_at
-      int attempts
-      timestamptz next_attempt_at
-      string last_error
-    }
+    FINANCIAL_TRANSACTION ||--o| OUTBOX_MESSAGE : "produz; Outbox publicada pode ser limpa"
+    FINANCIAL_TRANSACTION ||--|| IDEMPOTENCY_RECORD : "identifica operacao"
 ```
 
-A chave de idempotência não pertence a `FinancialTransaction`: ela é estado técnico da operação HTTP e possui retenção própria.
+A cardinalidade da Outbox considera a limpeza posterior; no commit de criação existe exatamente um evento. A chave de idempotência e o fato são inseridos atomicamente. Identificador do lançamento pode ser gerado antes da reserva; FK da resposta para o fato deve ser diferível até commit ou preenchida após inserção do fato dentro da mesma transação. Não deixar reserva órfã confirmada.
 
-## 3. Modelo lógico — Consolidation
+## Consolidação
 
-```mermaid
-erDiagram
-    DAILY_CONSOLIDATION ||--o{ PROCESSED_EVENT : receives_events_for_date
+| Tabela | Chaves e dados principais |
+|---|---|
+| projection_control | Linha única; active_generation_id; maintenance; maintenance_run_id; maintenance_started_at |
+| projection_generations | generation_id PK; status; created_at; activated_at; snapshot_manifest |
+| daily_consolidations | PK (generation_id, business_date); total_credits numeric(28,2); total_debits numeric(28,2); transaction_count bigint; last_updated_at |
+| processed_transactions | PK (generation_id, transaction_id); UNIQUE (generation_id, event_id); business_date; type; amount; fact_hash; processed_at |
+| recovery_runs | run_id PK; operador; motivo; estado; geração anterior/nova; manifesto; contagens; hashes; horários |
 
-    DAILY_CONSOLIDATION {
-      date business_date PK
-      decimal total_credits
-      decimal total_debits
-      decimal balance
-      bigint transaction_count
-      timestamptz last_updated_at
-    }
+A migration inicial cria uma geração vazia ACTIVE e a linha única de controle apontando para ela, com maintenance=false.
 
-    PROCESSED_EVENT {
-      uuid event_id PK
-      date business_date
-      timestamptz processed_at
-    }
-```
+`ProcessedTransaction` é o registro durável do efeito financeiro e substitui a proposta anterior de deduplicação somente por eventId. Reconstrução popula totais e identidades na mesma geração. Retenção da geração ativa acompanha os fatos; gerações inativas ficam 7 dias para auditoria e são removidas somente após encerramento operacional.
 
-A relação acima é conceitual para rastreabilidade; `ProcessedEvent` não precisa de FK física para a projeção. Isso evita acoplamento desnecessário e permite registrar eventos com segurança dentro da mesma transação.
+Saldo é calculado como créditos menos débitos na leitura, sem coluna mutável independente. Valor individual entre 0,01 e 999.999.999,99, reforçado por CHECK; tipo CREDIT/DEBIT; transactionCount não negativo. Rejeitar escala acima de duas casas antes de persistir para impedir arredondamento implícito do numeric. Overflow de total/contagem aborta transação e gera incidente. Auditoria operacional tem retenção própria; identidades financeiras não são logs descartáveis.
 
-## 4. Integridade e precisão
+## Transações e concorrência
 
-- `amount > 0`;
-- `type IN ('DEBIT','CREDIT')`;
-- valores monetários usam decimal/`numeric`, nunca `float`/`double`;
-- precisão/escala física devem ser explicitadas na migration e testadas nos limites; como o case não fornece valor máximo, o limite adotado será premissa técnica documentada;
-- `balance = total_credits - total_debits`;
-- `event_id` é único;
-- lançamentos confirmados são imutáveis no MVP;
-- `business_date` é calculado em Transactions e propagado no evento.
+Criação: fato + idempotência + Outbox no mesmo commit. Publicação: reserva curta com SKIP LOCKED e token; chamada externa fora da transação (ADR-004). Consumo: trava FOR SHARE no controle, identidade e UPSERT relativo no mesmo commit (ADR-005). Manutenção: FOR UPDATE no controle para escoar consumo e persistir pausa; troca de geração atômica. Consulta usa uma única instrução/snapshot com geração ativa.
 
-## 5. Idempotência HTTP
+## Índices e isolamento
 
-A tabela técnica armazena hash SHA-256 de uma representação canônica do payload. Mesma chave + mesmo hash reproduz a resposta lógica original; mesma chave + hash diferente gera `409`. A restrição única também resolve corrida entre requisições simultâneas.
+Índices `(business_date,id)` e `(type,business_date,id)` em lançamentos; parcial na Outbox elegível por state/next_attempt_at/lease_until; `(generation_id,business_date)` no registro de processamento para reconciliação. PK de consolidação atende consulta diária. Avaliar planos com massa de referência antes de adicionar índices.
 
-A janela de retenção/expiração é configurável porque não foi definida pelo desafio.
-
-## 6. Concorrência
-
-### Outbox
-
-Publishers capturam pequenos lotes elegíveis com `FOR UPDATE SKIP LOCKED` (ou equivalente PostgreSQL), reduzindo trabalho duplicado entre instâncias. A semântica continua at-least-once porque falha após envio pode causar republicação.
-
-### Consolidado
-
-O consumidor primeiro tenta inserir `processed_events.event_id`. Para evento novo, atualiza `daily_consolidations` com `INSERT ... ON CONFLICT DO UPDATE` e incrementos relativos. As duas operações pertencem à mesma transação, evitando `lost update` e dupla contabilização.
-
-## 7. Índices orientadores
-
-Além de PK/UK:
-- `financial_transactions(business_date, id)` para consultas/reconciliação;
-- `financial_transactions(occurred_at, id)` se a API filtrar pelo instante;
-- índice parcial de Outbox em itens `published_at IS NULL` ordenáveis por `next_attempt_at/occurred_at`;
-- `idempotency_records(expires_at)` para limpeza;
-- `processed_events(business_date)` somente se reconciliação/diagnóstico justificar.
-
-Índices adicionais dependem de plano de consulta medido.
-
-## 8. Consistência e recuperação
-
-Há consistência eventual entre os contextos. Backlog/idade da fila e Outbox tornam a defasagem operacional observável. A reconstrução excepcional não depende de retenção da SQS: `financial_transactions` é a fonte de verdade.
-
-Outbox publicada, registros de idempotência expirados e `ProcessedEvent` exigem políticas de retenção/limpeza configuráveis. Itens Outbox não publicados nunca são removidos pela limpeza.
-
-## 9. Backup e isolamento
-
-Retenção de backup, RPO e RTO não foram fornecidos. A arquitetura-alvo usa PostgreSQL gerenciado com backup/PITR quando objetivos forem definidos. Em produção, os contextos devem ter isolamento suficiente para que carga/falha de Consolidação não comprometa Lançamentos; localmente podem compartilhar instância física com databases/schemas e credenciais separados.
+READ COMMITTED no fluxo normal e REPEATABLE READ nos snapshots operacionais. Timestamps técnicos em UTC. Limites e contratos no [SDD](../05-arquitetura-software/sdd.md) e [parâmetros](../07-infraestrutura/parametros-operacionais.md). Backup e restauração seguem o [procedimento operacional](../07-infraestrutura/recuperacao-e-reconciliacao.md); Outbox não substitui backup.

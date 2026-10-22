@@ -1,37 +1,14 @@
-# ADR-003 — PostgreSQL como persistência transacional de referência
+# ADR-003 — PostgreSQL por contexto
 
-- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
-- **Drivers:** ASR-002, ASR-004, integridade e auditabilidade
+- **Estado:** APROVADO
+- **Direcionadores:** ASR-002/004, integridade monetária e isolamento de falhas.
 
-## Contexto
+## Alternativas e decisão
 
-Lançamentos financeiros são estruturados e exigem atomicidade/constraints. A Consolidação precisa atualizar projeção e controle de deduplicação na mesma transação local.
+PostgreSQL oferece transações, constraints, índices, UPSERT e bloqueios adequados aos fatos financeiros. Banco documental/NoSQL não tem requisito conhecido que compense complexidade adicional. Adotar PostgreSQL 17, instâncias separadas em ambiente local e RDS separados em AWS; schemas, credenciais e migrations por contexto.
 
-## Alternativas
-
-PostgreSQL oferece ACID, constraints, índices, maturidade e suporte gerenciado. Banco documental ou NoSQL distribuído não possui driver no volume/requisitos conhecidos que compense complexidade adicional.
-
-## Decisão
-
-Usar **PostgreSQL**, com ownership por serviço e sem joins/leitura direta entre contextos.
-
-### Transactions
-- `financial_transactions`;
-- `idempotency_records`;
-- `outbox_messages`.
-
-### Consolidation
-- `daily_consolidations`;
-- `processed_events`.
-
-Ambiente local pode usar uma instância física com databases separados. Arquitetura-alvo usa isolamento de credenciais/ownership e pode separar instâncias conforme disponibilidade/custo.
+Lançamentos possui fatos, idempotência e Outbox. Consolidação possui projeções, registro de identidades, controle de geração/manutenção e histórico operacional. O modelo normativo é a visão de dados. Não há joins entre bancos no fluxo de negócio; ferramenta operacional tem acesso excepcional auditado.
 
 ## Consequências
 
-- migrations versionadas por contexto;
-- `numeric` para valores monetários;
-- constraints reforçam invariantes;
-- PostgreSQL permite UPSERT atômico e `FOR UPDATE SKIP LOCKED`, usados respectivamente na concorrência da Consolidação e da Outbox;
-- backup/PITR/Multi-AZ dependem de RPO/RTO/SLO ainda não fornecidos.
-
-`ACEITO` é status da decisão arquitetural; validação de migrations, concorrência e rollback depende dos testes executados.
+Decimal/numeric com precisão explícita, constraints e transações locais. Migrations são job separado, não inicialização concorrente das APIs. Produção usa Multi-AZ, backups/PITR e ensaio de restore conforme arquitetura AWS; local usa volumes persistentes e não oferece HA. Testes usam PostgreSQL real para concorrência, rollback e precisão.

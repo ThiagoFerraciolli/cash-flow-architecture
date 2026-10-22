@@ -1,102 +1,55 @@
 # Arquitetura-alvo na AWS
 
-- **Status:** EM REVISÃO FINAL — aguardando validação humana
-- **Objetivo:** mapear a arquitetura lógica para AWS com simplicidade, isolamento e rastreabilidade aos requisitos.
+**Estado: DOCUMENTAÇÃO APROVADA; NÃO PROVISIONADA.** Região técnica de referência us-east-1. A adoção em cliente real requer confirmar residência de dados antes de armazenar dados reais; isso não impede a homologação com dados sintéticos.
 
-## 1. Região de referência
+## Topologia de referência
 
-`us-east-1` é usada apenas para estimativas. Região produtiva depende de residência de dados, latência, regulação e estratégia corporativa.
+VPC com duas zonas de disponibilidade, duas subnets públicas para ALB/NAT e subnets privadas para aplicações e bancos. Um NAT Gateway por zona, rotas de saída na mesma zona e endpoint gateway S3. Sem IP público em tasks/RDS. Essa escolha torna o custo de conectividade explícito; endpoints de interface são otimização futura mediante medição.
 
-## 2. Mapeamento
+Quatro ECS Services Fargate Linux x86, um por processo. Cada serviço inicia com duas tasks de 0,5 vCPU/1 GiB distribuídas entre zonas. APIs mínimo 2/máximo 6; Workers mínimo 2/máximo 4. Rolling deployment com minimumHealthyPercent 100 e maximumPercent 150, circuit breaker e rollback de deployment; capacidade temporária adicional prevista. Não confundir quatro ECS Services com quatro domínios de negócio.
 
-| Capacidade | Serviço AWS | Justificativa |
-|---|---|---|
-| entrada HTTPS | Application Load Balancer | TLS, health checks e balanceamento para as APIs |
-| Transactions API | ECS/Fargate | processo stateless e escala independente |
-| Transactions Worker | ECS/Fargate | Outbox Publisher fora do caminho HTTP |
-| Consolidation API | ECS/Fargate | leitura e escala independente |
-| Consolidation Worker | ECS/Fargate | consumo assíncrono independente |
-| imagens | ECR | registro gerenciado |
-| dados de Lançamentos | RDS PostgreSQL | atomicidade de lançamento/idempotência/Outbox |
-| dados de Consolidação | RDS PostgreSQL | projeção e deduplicação com ownership separado |
-| integração | SQS Standard | desacoplamento, backlog, redelivery e baixo overhead |
-| mensagens problemáticas | SQS DLQ | isolamento e redrive operacional |
-| segredos | Secrets Manager | externalização/rotação |
-| chaves | KMS | criptografia gerenciada |
-| logs/métricas | CloudWatch | integração AWS |
-| traces | OpenTelemetry + destino compatível | instrumentação portável |
+Dois RDS PostgreSQL 17 separados, cada um Multi-AZ com standby, classe inicial db.t4g.small e 100 GiB gp3 por banco. CPU credit de instância burstable é risco monitorado; trocar classe após medição se carga sustentada exigir. Backups/PITR 35 dias, criptografia, proteção contra exclusão e parâmetros de conexão TLS. Instância por contexto evita falha/saturação causada pela Consolidação no banco de Lançamentos.
 
-## 3. Implantação
+SQS Standard principal com 7 dias de retenção e DLQ com 14 dias; SSE-KMS, políticas por papel, long polling e timeout conforme tabela normativa. Cognito para clientes técnicos, ALB/ACM para HTTPS, WAF, ECR, Secrets Manager, CloudWatch e OpenTelemetry com destino AWS X-Ray.
 
 ```mermaid
 flowchart TB
-    U[Consumidor] --> ALB[Application Load Balancer]
-    ALB --> TA[ECS/Fargate\nTransactions API]
-    ALB --> CA[ECS/Fargate\nConsolidation API]
-
-    TA --> TDB[(RDS PostgreSQL\nTransactions)]
-    TW[ECS/Fargate\nTransactions Worker] --> TDB
-    TW --> Q[SQS Standard]
-    Q --> CW[ECS/Fargate\nConsolidation Worker]
-    Q -. redrive .-> D[SQS DLQ]
-    CW --> CDB[(RDS PostgreSQL\nConsolidation)]
+    U[Cliente autenticado] --> ALB[ALB HTTPS + WAF em duas zonas]
+    subgraph PRIV[Subnets privadas - duas zonas]
+      TA[ECS API Lancamentos - 2+ tasks]
+      TW[ECS Publicador - 2+ tasks]
+      CA[ECS API Consolidacao - 2+ tasks]
+      CW[ECS Consumidor - 2+ tasks]
+      TDB[(RDS Lancamentos Multi-AZ)]
+      CDB[(RDS Consolidacao Multi-AZ)]
+    end
+    ALB --> TA
+    ALB --> CA
+    TA --> TDB
+    TW --> TDB
+    TW --> Q[SQS Standard + DLQ]
+    Q --> CW
+    CW --> CDB
     CA --> CDB
-
-    SM[Secrets Manager / KMS] -.-> TA
-    SM -.-> TW
-    SM -.-> CA
-    SM -.-> CW
-    OBS[CloudWatch / OpenTelemetry] -.-> TA
-    OBS -.-> TW
-    OBS -.-> CA
-    OBS -.-> CW
+    PRIV -. saida HTTPS por NAT da zona .-> AWS[Servicos AWS e JWKS]
 ```
 
-São **2 serviços de negócio / 4 processos executáveis**, não quatro microsserviços.
+## Rede e acesso
 
-## 4. Rede e segurança
+Security Group do ALB aceita 443 externo; tasks aceitam porta HTTPS apenas do ALB; RDS aceita 5432 apenas dos papéis de rede de seu contexto e ferramenta autorizada. Workers sem entrada pública. Administração por task eventual/SSM autorizada, sem SSH público. HTTPS nas tasks usa certificado interno por ambiente, armazenado no Secrets Manager, renovado antes do vencimento por deployment; sem chave privada na imagem. O certificado público do ALB é gerenciado pelo ACM. Restringir egress por destinos/portas compatíveis com serviços utilizados e auditar via Flow Logs; NAT não é firewall de aplicação.
 
-- ALB é o único componente público quando exposição externa for necessária;
-- tasks ficam em subnets privadas; RDS não possui endpoint público;
-- acesso à SQS preferencialmente por VPC endpoint quando custo/topologia justificarem; caso contrário, egress controlado deve ser explicitado;
-- Security Groups permitem apenas fluxos necessários;
-- IAM Task Roles separados por processo e menor privilégio;
-- Transactions Worker: `sqs:SendMessage` na fila principal;
-- Consolidation Worker: permissões de receive/delete/change-visibility na fila principal; redrive administrativo separado do runtime quando possível;
-- Secrets Manager/KMS sem credenciais no código;
-- TLS externo e criptografia em repouso;
-- OAuth2/OIDC/JWT no boundary HTTP quando o IdP corporativo for definido.
+Task Role por processo; Execution Role separada; permissões KMS/SQS/ECR/logs/secrets conforme [segurança](../04-visoes/seguranca-resiliencia-observabilidade.md). Não usar fila pública ou credenciais AWS em arquivos. Health do ALB direcionado à readiness privada; APIs de Lançamentos não verificam fila/Consolidação para ficar prontas.
 
-O case não fornece RBAC de negócio, portanto perfis não são inventados.
+## Escala e capacidade
 
-## 5. Disponibilidade e escala
+APIs escalam por CPU alvo 60% e latência observada; memória 75% gera alerta. Publicador escala pela quantidade/idade da Outbox, consumidor por backlog por task e idade SQS. Threshold inicial de backlog por task 100, com cooldown de scale-out 60 s e scale-in 300 s; recalibrar no ensaio. Não escalar o publicador somente pela fila: quando SQS está vazio e Outbox cheia esse sinal seria incorreto.
 
-O requisito explícito é independência da Consolidação. A topologia permite escala horizontal dos quatro processos e isolamento dos bancos. Multi-AZ, quantidade mínima de réplicas, RTO/RPO e cross-region dependem de objetivos não fornecidos.
+Limitar pool de cada processo a 5 conexões. Por contexto, os máximos de 6 APIs e 4 Workers chegam a 15 tasks durante rolling a 150%: até 75 conexões de aplicação. Reservar até 20 para operação/migration e configurar referência de max_connections=120, deixando margem para administração. Validar consumo de memória desse limite na classe inicial e rejeitar promoção se houver saturação; ampliar classe antes de aumentar pools. A projeção diária é linha disputada; UPSERT preserva correção, mas teste concorrente é obrigatório. Não presumir throughput de escrita a partir das 50 consultas/s do enunciado.
 
-Autoscaling pode usar CPU/memória nas APIs e idade/profundidade da fila nos workers. Limiares são definidos após teste/observação, não arbitrariamente como requisitos.
+## Alta disponibilidade e recuperação
 
-## 6. ECS/Fargate versus EKS
+Duas tasks por processo e Multi-AZ são decisões aprovadas da referência de produção. Objetivos internos e ensaios estão nos [parâmetros](parametros-operacionais.md). Failover de zona não substitui PITR; Multi-AZ não impede erro lógico. Restore/rebuild segue [procedimento](recuperacao-e-reconciliacao.md). DR automático entre regiões não está no escopo; risco regional é declarado e não se promete RPO zero.
 
-ECS/Fargate é suficiente para quatro processos containerizados e reduz operação. EKS só seria reavaliado por padrão corporativo, escala/plataforma compartilhada ou capacidades Kubernetes realmente necessárias.
+## Passagem do local para AWS
 
-## 7. SQS versus Kafka/MSK
-
-ADR-007 seleciona SQS Standard porque os requisitos atuais pedem desacoplamento, recuperação e tratamento de falhas, não event streaming/replay histórico. Kafka/MSK permanece alternativa futura, não componente da arquitetura-alvo atual.
-
-## 8. Local → AWS
-
-| Local | AWS |
-|---|---|
-| Docker containers | ECS/Fargate |
-| PostgreSQL (databases separados) | RDS PostgreSQL com ownership separado |
-| broker/fila compatível com semântica at-least-once | SQS Standard + DLQ |
-| configuração/secrets de desenvolvimento | Secrets Manager/KMS |
-| logs/métricas/traces locais | CloudWatch + OpenTelemetry |
-
-## 9. Observabilidade
-
-Além de taxa/erro/latência das APIs: Outbox pendente e idade mais antiga, falhas/tentativas do Publisher, `ApproximateNumberOfMessagesVisible`, `ApproximateAgeOfOldestMessage`, DLQ > 0, falhas de consumo e idade do evento ao ser consolidado. Correlation/trace context atravessa HTTP, Outbox e atributos da mensagem.
-
-## 10. Custos
-
-`estimativa-custos.md` usa SQS como baseline e trata MSK apenas como comparação de sensibilidade. NAT Gateway, VPC endpoints, WAF e outros itens condicionais precisam ser explicitados quando incluídos/excluídos para evitar custo oculto.
+Mesmo domínio e contratos, adaptadores RabbitMQ/SQS diferentes. Configuração `Messaging__Provider=Sqs`, URLs/ARNs, emissor Cognito e segredos AWS. Migrations equivalentes por contexto, imagens versionadas e testes de homologação com SQS real antes de promover. Fluxo completo em [implantação e operação](implantacao-e-operacao.md); custos calculados para esta topologia em [estimativa](estimativa-custos.md).

@@ -1,30 +1,24 @@
-# ADR-004 — Publicação confiável com Transactional Outbox
+# ADR-004 — Outbox transacional com reserva temporária
 
-- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
-- **Drivers:** RNF-004, ASR-002
-- **Dependências:** ADR-002, ADR-003
-
-## Contexto
-
-Persistir um lançamento no PostgreSQL e publicar diretamente em SQS são dois recursos independentes. Um dual write ingênuo pode deixar lançamento sem evento ou evento sem lançamento.
+- **Estado:** APROVADO
+- **Direcionadores:** RNF-004, ASR-002; isolamento de falhas e concorrência entre publicadores.
 
 ## Decisão
 
-Adotar **Transactional Outbox**. `FinancialTransaction`, `IdempotencyRecord` e `OutboxMessage` são persistidos no mesmo commit local. Um **Transactions Worker / Outbox Publisher** separado da API captura pendências e publica em SQS.
+Persistir lançamento, identidade do evento, chave de idempotência e Outbox no mesmo commit. A API não chama o broker. O Worker seleciona itens elegíveis com `FOR UPDATE SKIP LOCKED`, grava `lease_token` e `lease_until` e confirma uma transação curta. O envio à rede ocorre fora dessa transação.
 
-Múltiplos publishers usam captura de lote com `FOR UPDATE SKIP LOCKED` (ou equivalente PostgreSQL). Após `SendMessage` confirmado, o registro recebe `published_at`.
+Reserva de 60 s, renovada a cada 20 s, lote até 20 e paralelismo 4. Usar relógio do banco. Um publicador só atualiza `published_at`, falha ou renovação se seu token ainda corresponder à reserva atual. Token substituído impede atualização pelo proprietário antigo. Após reinício, reservas vencidas voltam a ser elegíveis.
 
-Campos operacionais mínimos: `attempts`, `next_attempt_at`, `last_error`, `published_at` e metadados de tracing.
+Sucesso significa confirmação do adaptador: RabbitMQ confirm sem retorno de rota ou sucesso SQS. Falha após envio e antes de persistir sucesso gera republicação com o mesmo eventId; ADR-005 absorve duplicatas. Se a reserva vencer durante um envio, dois envios podem ocorrer; isso é tolerado, não é garantia de exclusão absoluta.
 
-## Falhas e limites
+## Falhas persistentes e capacidade
 
-- falha da fila não afeta lançamento já confirmado;
-- publisher aplica retry com backoff/jitter;
-- falha após envio e antes de `published_at` pode duplicar publicação;
-- consumidor idempotente é obrigatório;
-- Outbox publicada tem retenção/limpeza configurável; pendências nunca são removidas pela limpeza;
-- Outbox não oferece exactly-once, backup ou DR.
+Backoff exponencial com jitter. Após 20 falhas consecutivas por item, marcar `SUSPENDED`, preservar payload e gerar alerta. A operação diagnostica e libera nova rodada de tentativas; não há descarte automático. A distinção evita um item inválido consumir indefinidamente as mesmas tentativas e permite que outros avancem.
 
-## Evidência posterior
+Limpar somente itens publicados há mais de 30 dias. O eventId permanece no lançamento, permitindo recuperação mesmo após limpeza. Monitorar disco, idade e suspensões. Outbox não é backup nem armazenamento ilimitado.
 
-Testes devem cobrir fila indisponível, publishers concorrentes, crash window e recuperação. `ACEITO` descreve a decisão; somente evidência executada valida o comportamento.
+## Alternativas
+
+Manter lock de banco enquanto chama o broker prolonga transações e ocupa conexões; foi rejeitado. Publicar diretamente na API cria dual write e dependência de disponibilidade; foi rejeitado. Reserva persistida exige token e recuperação de vencimento, custo aceito.
+
+Testar dois publicadores, expiração da reserva, token antigo, ausência de rota RabbitMQ, falha de confirmação, suspensão e retomada. [Semântica PostgreSQL de SELECT e bloqueios](https://www.postgresql.org/docs/current/sql-select.html).

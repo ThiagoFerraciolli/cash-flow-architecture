@@ -1,22 +1,22 @@
-# Premissas
+# Premissas e escolhas aprovadas de escopo
 
-## Objetivo
+**Estado: DOCUMENTAÇÃO APROVADA.** Os PDFs não fornecem todos os detalhes. As escolhas abaixo permitem implementar e testar um escopo fechado; não são apresentadas como requisitos originais do cliente.
 
-Premissas são hipóteses temporárias onde o desafio não fornece informação suficiente. Não são requisitos confirmados. Tecnologias e padrões são decididos em ADRs.
+| ID | Premissa/decisão aprovada | Consequência |
+|---|---|---|
+| PRE-001 | Fato confirmado deve permanecer recuperável nas falhas de integração | Commit local, backup e RPO de desastre explícito |
+| PRE-002 | Lançamentos são fonte de verdade; consolidado é derivado | Reconstrução por snapshot da fonte |
+| PRE-003 | Consistência eventual aceita para a consulta | Completude desconhecida na API; metas de convergência |
+| PRE-004 | Retry e reprocessamento não adicionam efeito financeiro | Identidade persistente, sem expiração automática |
+| PRE-005 | Lançamentos imutáveis, sem edição/estorno | Somatórios comutativos e auditoria |
+| PRE-006 | 5% não autoriza perder fatos financeiros | Métrica de erro HTTP separada de integridade |
+| PRE-007 | Um comerciante/caixa lógico e BRL | Sem tenant/conta/moeda no particionamento |
+| PRE-008 | Dia por America/Sao_Paulo, sem fechamento | Derivar BusinessDate uma vez; retroativos aceitos |
+| PRE-009 | Ausência de projeção retorna zero projetado | Não afirmar ausência de movimento; completeness UNKNOWN |
+| PRE-010 | Defaults operacionais definidos pela arquitetura | Fonte única na tabela de parâmetros; mudanças exigem testes |
+| PRE-011 | Pico de 50 req/s exercitado em GET por data | Ensaio principal de consulta e complementar de processamento |
+| PRE-012 | Autenticação de clientes técnicos | Keycloak local, Cognito AWS e permissões explícitas |
+| PRE-013 | Referência AWS us-east-1 em duas zonas | Dados sintéticos até validação de residência para cliente real |
+| PRE-014 | Execução local usa RabbitMQ | Dois adaptadores e homologação SQS real |
 
-| ID | Premissa | Motivo | Validação futura |
-|---|---|---|---|
-| PRE-001 | Lançamento confirmado não deve ser permanentemente perdido. | Dados financeiros e confiabilidade, embora RPO não esteja definido. | Validar RPO e recuperação. |
-| PRE-002 | Lançamentos são a informação financeira primária; consolidado diário é derivado. | O problema descreve fatos e relatório diário. | Validar com negócio. |
-| PRE-003 | Consolidado pode ficar temporariamente defasado, mas deve convergir sem perda/duplicidade. | Lançamentos precisa sobreviver à indisponibilidade da Consolidação. | Validar janela máxima. |
-| PRE-004 | Retries/reprocessamentos não podem produzir efeito financeiro adicional. | At-least-once e falhas geram repetição. | Validar idempotência. |
-| PRE-005 | Lançamentos confirmados são imutáveis no MVP. | Não há edição/exclusão/estorno no enunciado. | Definir política futura. |
-| PRE-006 | A tolerância de até 5% de falha/perda de requisições do consolidado não autoriza perda permanente de lançamento confirmado. | Evita interpretação perigosa do RNF de carga. | Confirmar métrica. |
-| PRE-007 | MVP considera uma única moeda; multi-moeda não é modelada. | Moeda não é especificada. | Confirmar moeda/regras. |
-| PRE-008 | Para a demonstração, `BusinessDate` é derivado de `OccurredAt` usando um fuso configurável único; não existe fechamento intradiário. | O desafio pede consolidado diário mas não define timezone/fechamento. Calcular uma vez evita divergência entre serviços. | Validar timezone, calendário e fechamento com negócio. |
-| PRE-009 | `GET /consolidations/{date}` para data válida sem lançamentos retorna consolidado zero. | Permite representar semanticamente “sem movimento” e torna consulta/carga determinística; o enunciado não define 404 nesse caso. | Validar contrato de consulta. |
-| PRE-010 | Janelas de idempotência, retenção de Outbox/ProcessedEvent, visibility timeout e limites de retry são configurações técnicas do MVP. | Valores produtivos dependem de SLA/volume/operabilidade ausentes. | Definir com SLOs e operação. |
-
-## Governança
-
-Cada premissa deve ser confirmada, substituída ou removida quando houver informação de negócio. Nenhuma premissa deve ser apresentada como requisito original dos desafios.
+Limites monetários, de data, retenção e metas estão em [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). Não há pendência de aprovação dessas escolhas para o desafio. Evolução de negócio altera premissas por nova decisão e atualização da rastreabilidade.

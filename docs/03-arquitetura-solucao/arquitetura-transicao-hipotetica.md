@@ -1,51 +1,11 @@
-# Arquitetura de Transição — Cenário Hipotético
+# Transição arquitetural e aplicabilidade
 
-- **Classificação:** DIFERENCIAL do desafio de Solutions Architect
-- **Status:** HIPÓTESE DOCUMENTAL — não é requisito do enunciado
+**Estado: DOCUMENTAÇÃO APROVADA.** O PDF de Soluções condiciona transição à necessidade de migração de legado. Não há legado informado; portanto esse diferencial é **não aplicável ao escopo**, sem pendência de arquitetura.
 
-## 1. Limite
+A passagem efetiva local→AWS está definida no [plano de implantação](../07-infraestrutura/implantacao-e-operacao.md), incluindo homologação, adaptador SQS, identidade, dados e reversão. Ela não pressupõe migrar dados produtivos de uma máquina local.
 
-O desafio não informa legado, monólito ou migração. Este cenário existe apenas para demonstrar como a arquitetura-alvo poderia orientar uma transição; não justifica as decisões principais e não afirma fatos sobre o cliente.
+## Referência opcional para futuro legado
 
-## 2. Estado hipotético
+Se existir um monólito, a sequência proposta é: inventariar regras/dados/dependências; definir fonte financeira e identidades; introduzir publicação confiável sem dual write; carregar snapshot na projeção nova e capturar alterações posteriores; reconciliar em paralelo sem oferecer duas fontes autoritativas; migrar consultas gradualmente; manter plano de retorno; separar registro apenas após preservação de identidade e trilha financeira.
 
-Considere, somente para análise, uma solução em que Lançamentos e Consolidação compartilham processo/deployment e persistência. Uma falha ou manutenção pode então afetar ambas as capacidades.
-
-```mermaid
-flowchart TB
-    U[Consumidor] --> M[Monólito legado hipotético]
-    M --> DB[(Persistência compartilhada)]
-```
-
-## 3. Estado-alvo do desafio
-
-```mermaid
-flowchart LR
-    U[Consumidor] --> TA[Transactions API]
-    U --> CA[Consolidation API]
-    TA --> TDB[(Transactions PostgreSQL)]
-    TW[Transactions Worker] --> TDB
-    TW --> Q[SQS Standard]
-    Q --> CW[Consolidation Worker]
-    Q -. falha persistente .-> D[DLQ]
-    CW --> CDB[(Consolidation PostgreSQL)]
-    CA --> CDB
-```
-
-São 2 serviços de negócio e 4 processos executáveis. Outbox evita dual write ingênuo; SQS desacopla disponibilidade; consumidor idempotente tolera redelivery; reconciliação usa Lançamentos como fonte de verdade.
-
-## 4. Relação com drivers reais
-
-| Hipótese de problema legado | Resposta alvo | Driver real |
-|---|---|---|
-| falha compartilhada | serviços independentes | RNF-001 / ASR-001 |
-| dual write | Transactional Outbox | RNF-004 / ASR-002 |
-| Consolidação bloqueia registro | SQS/backlog | RNF-001/005/007 |
-| duplicação no retry | idempotência | RNF-006 / ASR-004 |
-| divergência difícil de detectar | observabilidade + reconciliação | RNF-010 / ASR-009 |
-
-## 5. Fora do escopo
-
-Sem cronograma, ondas, cutover, migração de dados, coexistência, CDC ou código de migração. Essas decisões exigiriam inventário e requisitos do legado inexistentes no enunciado.
-
-O diferencial demonstra raciocínio de transição sem transformar hipótese em requisito.
+Critérios de corte seriam igualdade por snapshot, tratamento de eventos posteriores, ausência de duplicidade e teste de retorno. Cronograma, CDC e tecnologia dependeriam do inventário real. Esta referência não é execução planejada nem requisito adicional dos PDFs.

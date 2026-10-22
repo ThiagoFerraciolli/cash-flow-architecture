@@ -1,42 +1,26 @@
-# ADR-005 — Idempotência no registro e no processamento
+# ADR-005 — Idempotência vinculada à identidade financeira
 
-- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
-- **Drivers:** RNF-006, ASR-004
+- **Estado:** APROVADO
+- **Direcionadores:** RNF-006, ASR-004; recuperação após expiração de mensagens e reconstrução.
 
-## Contexto
+## Entrada HTTP
 
-Retry de cliente e entrega at-least-once podem repetir operações. Em fluxo financeiro, repetição não pode criar efeito adicional.
+`Idempotency-Key` obrigatório, UUID, com unicidade `(issuer, client_id, key)`. A identidade vem do token validado. O registro e o lançamento são persistidos na mesma transação da Outbox. Mesma chave e mesmo hash reproduzem o status 201 e o corpo lógico original; hash diferente retorna 409. Ausência/formato inválido retorna 400.
 
-## Decisão — entrada HTTP
+Canonicalizar o comando validado: tipo em representação normativa, valor decimal com duas casas, `occurredAt` normalizado para UTC, descrição com distinção definida no contrato HTTP e ordem fixa dos campos. SHA-256 desse comando, sem timestamps gerados pelo servidor. A canonicalização recebe versão persistida; alterações futuras preservam comparação de registros antigos.
 
-`Idempotency-Key` é obrigatório em `POST /transactions` e persistido em `IdempotencyRecord`, separado da entidade financeira. O registro contém chave, SHA-256 do payload canônico, `transaction_id`, resposta lógica e expiração.
+Não há expiração nem reutilização automática de chaves neste escopo. Reter chave, hash, versão, identidade, transactionId e resposta mínima enquanto existir o fato financeiro. O custo é armazenamento crescente, aceito para impedir que retry tardio crie outro lançamento. Limpeza futura exige nova decisão e contrato explícito.
 
-No MVP, sem identidade de cliente definida, a chave é global. Se surgir `client_id` confiável, a evolução é unicidade `(client_id, key)`.
+Concorrência: `INSERT ... ON CONFLICT DO NOTHING` da chave dentro da transação; se já existe, ler a operação vencedora e comparar. Em READ COMMITTED, a leitura ocorre em novo comando após resolução do conflito. Se houver timeout/deadlock, desfazer a transação e responder erro retentável; jamais persistir lançamento sem chave. A resposta inclui `Idempotent-Replayed: true` no replay.
 
-Semântica:
-- chave ausente → 400;
-- primeira operação → 201;
-- mesma chave + mesmo hash → replay da resposta original, sem novo lançamento, com `Idempotent-Replayed: true`;
-- mesma chave + hash diferente → 409;
-- concorrência é arbitrada por unique constraint e releitura determinística.
+## Consumo
 
-A janela de retenção é configuração explícita do MVP, não regra de negócio fornecida.
+`ProcessedTransaction` substitui o controle limitado a `ProcessedEvent`. Chave primária `(generation_id, transaction_id)` e unicidade adicional `(generation_id, event_id)`. Armazena o fato mínimo: data, tipo, valor, eventId, hash financeiro e instante de processamento.
 
-## Decisão — consumo
+Na mesma transação: obter trava compartilhada da linha de controle, verificar manutenção, ler geração ativa, inserir identidade financeira e aplicar UPSERT relativo dos totais. Duplicata com mesmo fato é no-op; mesma identidade com conteúdo divergente é erro definitivo, alerta e DLQ. Confirmar a mensagem somente após commit, inclusive no caminho de duplicata.
 
-Cada evento possui `eventId`. Na mesma transação do consolidado:
-1. `INSERT processed_event ... ON CONFLICT DO NOTHING`;
-2. se já existir, no-op bem-sucedido;
-3. se novo, UPSERT atômico da projeção;
-4. commit;
-5. somente depois, `DeleteMessage` na SQS.
+Não remover deduplicação da geração ativa por prazo. Eventos de versões distintas do mesmo lançamento não podem gerar um segundo efeito. Novos eventIds não legitimam repetir um transactionId. A reconstrução cria uma geração com o mesmo conjunto de identidades financeiras da fonte, conforme o procedimento de recuperação.
 
-Rollback desfaz deduplicação e projeção juntas.
+## Consequências e aceite
 
-## Consequências
-
-- redelivery e crash depois do commit são seguros;
-- deduplicação não depende de memória;
-- não se promete exactly-once ponta a ponta;
-- retenção de registros técnicos deve ser operacionalmente definida;
-- testes de concorrência são obrigatórios antes de afirmar validação.
+Aceita-se armazenamento adicional para preservar integridade. Não há promessa de exactly-once do transporte. Há efeito financeiro único por lançamento e geração, sujeito à execução correta das transações. Testar duplicatas tardias, concorrência, identidade conflitante, troca de versão, reconstrução e crash após commit.

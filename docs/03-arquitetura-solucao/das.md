@@ -1,171 +1,59 @@
-# DAS — Documento de Arquitetura da Solução
+# DAS — Documento de arquitetura da solução
 
-- **Status:** PRONTA PARA VALIDAÇÃO HUMANA
-- **Escopo:** MVP dos desafios de Arquiteto de Soluções e Arquiteto de Software
+**Estado: DOCUMENTAÇÃO APROVADA.** Escopo: controle de lançamentos e relatório diário dos dois desafios Keyrus. O objetivo é preservar registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e implantação demonstrável na AWS.
 
-## 1. Objetivo
+## Direcionadores e limites
 
-Arquitetar controle de lançamentos de débito/crédito e consolidado diário, garantindo que indisponibilidade da Consolidação não interrompa novos lançamentos e contemplando o requisito explícito de 50 req/s com no máximo 5% de perda de requisições no consolidado.
+Os PDFs exigem as duas capacidades, independência de disponibilidade, 50 req/s no consolidado e perda de requisições até 5%. Exigem ainda implementação/testes/execução local na entrega final; esta branch conclui apenas o desenho. Hipóteses aprovadas: comerciante único, BRL, calendário America/Sao_Paulo e saldo do movimento diário. Não há estorno, edição ou multi-tenant no escopo.
 
-O enunciado não identifica inequivocamente a operação à qual a carga se aplica; a estratégia de testes declara a hipótese de teste sem convertê-la em regra de negócio.
+## Decomposição
 
-## 2. Direcionadores
-
-1. Lançamentos e Consolidação são capacidades independentes.
-2. O consolidado é projeção derivada; Lançamentos é a fonte de verdade financeira do escopo.
-3. Confirmação de lançamento não depende da disponibilidade da Consolidação nem da fila.
-4. Trabalho de integração precisa ser recuperável.
-5. Redelivery/reprocessamento não pode duplicar efeito financeiro.
-6. A carga informada precisa de evidência reproduzível.
-7. Segurança, observabilidade, escalabilidade, custo e recuperação devem ser explícitos.
-8. SLA, RTO, RPO, retenções e regras financeiras ausentes não serão inventados.
-
-## 3. Arquitetura lógica
-
-A solução possui **2 serviços de negócio e 4 processos executáveis**.
+Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu banco. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.
 
 ```mermaid
 flowchart LR
-    U[Consumidor] -->|HTTPS| TA[Transactions API]
-    U -->|HTTPS| CA[Consolidation API]
-    TA --> TDB[(PostgreSQL\nTransactions)]
-    TW[Transactions Worker\nOutbox Publisher] --> TDB
-    TW --> Q[SQS Standard]
-    Q --> CW[Consolidation Worker]
-    CW --> CDB[(PostgreSQL\nConsolidation)]
+    U[Consumidor autenticado] --> TA[API de Lancamentos]
+    TA --> TDB[(PostgreSQL Lancamentos)]
+    TW[Publicador Outbox] --> TDB
+    TW --> Q[RabbitMQ local / SQS AWS]
+    Q --> CW[Consumidor]
+    CW --> CDB[(PostgreSQL Consolidacao)]
+    U --> CA[API de Consolidacao]
     CA --> CDB
-    Q -. redrive .-> D[DLQ]
-    OBS[Observabilidade] -. telemetria .- TA
-    OBS -. telemetria .- TW
-    OBS -. telemetria .- CA
-    OBS -. telemetria .- CW
+    Q -. falhas .-> D[DLQ]
 ```
 
-**Serviço Lançamentos:** Transactions API + Transactions Worker, com o mesmo ownership de dados.  
-**Serviço Consolidação:** Consolidation API + Consolidation Worker, com o mesmo ownership de dados.
+## Fluxo e consistência
 
-Separar API e Worker permite escala, ciclo operacional e health independentes sem criar novos bounded contexts.
+A API valida comando e identidade, grava fato financeiro, idempotência e Outbox atomicamente e retorna 201. Publicador reserva trabalho em transação curta e envia fora dela; confirma publicação com token de reserva. O consumidor insere identidade financeira e atualiza totais na mesma transação; ack/delete somente após commit.
 
-## 4. Responsabilidades
+A integração é pelo menos uma vez, sem ordenação global necessária. Soma de fatos imutáveis é comutativa, mas depende de deduplicação por transactionId. A projeção é eventualmente consistente: zero significa nenhum fato refletido, não ausência comprovada de movimento. Completude permanece desconhecida no contrato de consulta.
 
-### Lançamentos
-- `POST /transactions` com `Idempotency-Key` obrigatório;
-- `GET /transactions/{id}` e listagem paginada;
-- persistir fato financeiro, idempotência e Outbox no mesmo commit;
-- calcular `BusinessDate` uma vez, por regra temporal configurada;
-- publicar Outbox assincronamente pelo Transactions Worker.
+## Recuperação e dados
 
-### Consolidação
-- consumir `TransactionCreatedV1` at-least-once;
-- deduplicar por `eventId`;
-- atualizar `DailyConsolidation` por UPSERT atômico;
-- `GET /consolidations/{date}` e consulta por intervalo;
-- para data válida sem movimento, retornar `200` com totais zero;
-- manter DLQ/redrive e procedimento de reconciliação.
+Lançamentos são fonte de verdade; eventId permanece no fato mesmo após limpeza da Outbox. Identidades HTTP e da geração ativa não expiram. Falhas persistentes são isoladas, sem descarte. Reconciliação usa snapshot após pausa controlada do consumo; reconstrução cria geração nova, valida e troca atomicamente. Escrita financeira continua durante manutenção. [Procedimento normativo](../07-infraestrutura/recuperacao-e-reconciliacao.md).
 
-## 5. Modelo conceitual
+## Ambientes e segurança
 
-`FinancialTransaction`: `id`, `type`, `amount`, `description?`, `occurredAt`, `businessDate`, `createdAt`.
+Local: Docker Compose, bancos separados, RabbitMQ e Keycloak. AWS: ECS/Fargate em duas zonas, RDS por contexto Multi-AZ, SQS/DLQ, Cognito, ALB/WAF e serviços de operação. O domínio permanece o mesmo; adaptadores e ensaios diferem por broker. [ADR-010](../06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md).
 
-`IdempotencyRecord`: `key`, `requestHash`, `transactionId`, resposta lógica, timestamps/expiração.
+APIs autenticam e autorizam; TLS na AWS, IAM mínimo, secrets externos, criptografia, logs sanitizados e auditoria de cliente técnico. [Visão de segurança](../04-visoes/seguranca-resiliencia-observabilidade.md). Observabilidade correlaciona API, Outbox, mensagem e consumo; mede atraso e falhas sem interpretar lastUpdatedAt como completude.
 
-`OutboxMessage`: `eventId`, `aggregateId`, `eventType`, `payload`, `headers`, `occurredAt`, `publishedAt?`, `attempts`, `nextAttemptAt?`, `lastError?`.
+## Capacidade, disponibilidade e custo
 
-`DailyConsolidation`: `businessDate`, `totalCredits`, `totalDebits`, `balance`, `transactionCount`, `lastUpdatedAt`.
+Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define réplicas, rede, failover e limites de escala; [custos](../07-infraestrutura/estimativa-custos.md) tornam explícita a topologia e as hipóteses tarifárias. Não há garantia de capacidade ou SLA medido nesta etapa.
 
-`ProcessedEvent`: `eventId`, `processedAt`.
+## Decisões e fontes
 
-## 6. Consistência e fluxo
+| Tema | Fonte normativa |
+|---|---|
+| Decomposição e integração | ADR-001/002 |
+| Banco e integridade | ADR-003; visão de dados |
+| Publicação e idempotência | ADR-004/005 |
+| AWS e escolha de fila | ADR-006/007 |
+| Evento e versionamento | ADR-008 |
+| Falhas e recuperação | ADR-009; procedimento operacional |
+| RabbitMQ/SQS | ADR-010 |
+| API e software | Contratos HTTP; SDD |
 
-### Registro
-1. API valida payload e chave de idempotência;
-2. reserva/valida a chave;
-3. persiste lançamento + registro de idempotência + Outbox atomicamente;
-4. retorna sucesso após commit local;
-5. Transactions Worker captura pendências concorrentes com `SKIP LOCKED` e envia para SQS;
-6. confirmação da fila permite marcar `publishedAt`.
-
-Falha depois de `SendMessage` e antes de `publishedAt` pode duplicar a mensagem. Isso é esperado.
-
-### Consolidação
-1. SQS entrega a mensagem;
-2. Worker inicia transação local;
-3. `INSERT processed_event ... ON CONFLICT DO NOTHING` reserva o `eventId`;
-4. evento novo atualiza o consolidado com incremento atômico; duplicata não reaplica efeito;
-5. commit;
-6. `DeleteMessage` somente depois do commit.
-
-A semântica é **at-least-once**, sem promessa de exactly-once ponta a ponta e sem necessidade atual de ordenação global.
-
-## 7. Data do consolidado
-
-O desafio fala em consolidado diário, mas não define fuso, fechamento ou qual timestamp governa o dia. Para impedir divergência, Lançamentos deriva e persiste `BusinessDate` a partir de `OccurredAt` usando fuso configurável e inclui esse valor no evento.
-
-O fuso usado na demonstração é premissa técnica explícita, não requisito do case. Uma regra de fechamento futura substitui essa premissa mediante nova decisão.
-
-## 8. Falhas e recuperação
-
-- **Consolidação indisponível:** SQS mantém backlog; Lançamentos continua funcionando.
-- **SQS indisponível:** Outbox permanece pendente; Publisher aplica retry/backoff.
-- **Falha transitória no consumidor:** mensagem reaparece após visibility timeout.
-- **Falha persistente:** redrive policy move para DLQ após limite configurado; alerta e runbook tratam a causa.
-- **Redrive:** mensagens corrigidas retornam controladamente à fila; idempotência protege duplicatas.
-- **Divergência silenciosa:** reconciliação compara contagem/créditos/débitos por `BusinessDate` entre fonte de verdade e projeção.
-- **Reconstrução:** parte de `financial_transactions`; não depende de retenção histórica da fila.
-
-## 9. Segurança
-
-Arquitetura-alvo: HTTPS/TLS, OAuth2/OIDC/JWT no limite HTTP, menor privilégio IAM, Secrets Manager/KMS, bancos/filas sem exposição pública e criptografia em repouso. Não se inventa IdP, scopes ou RBAC de negócio.
-
-Permissões de processos são separadas: Publisher envia à fila; Consolidation Worker recebe/remove/ajusta visibilidade; operação de redrive é controlada. Segredos e descrições sensíveis não entram em logs.
-
-## 10. Observabilidade
-
-Todos os quatro processos produzem logs estruturados, métricas e traces OpenTelemetry. Correlação atravessa HTTP → Outbox → mensagem → Worker.
-
-Sinais mínimos: taxa/erro/latência HTTP, pendências e idade da Outbox, falhas/tentativas do Publisher, profundidade e `ApproximateAgeOfOldestMessage` da SQS, mensagens na DLQ, falhas/tempo de consumo e idade do evento ao consolidar. `lastUpdatedAt` é diagnóstico, não indicador isolado de lag.
-
-Limiares dependem de SLOs não fornecidos.
-
-## 11. Escalabilidade e desempenho
-
-APIs são stateless. Os quatro processos escalam independentemente. Publishers concorrentes usam captura segura de Outbox; consumidores concorrentes usam idempotência + UPSERT relativo para evitar lost update.
-
-Não se introduzem cache, lock distribuído ou FIFO sem requisito/medição. O teste de 50 req/s reportará taxa de sucesso/erro e latência, declarando exatamente o endpoint e cenário exercitados.
-
-## 12. Arquitetura AWS
-
-- ALB para entrada HTTPS das APIs;
-- ECS/Fargate para 4 processos;
-- RDS PostgreSQL com ownership lógico/físico separado por contexto;
-- SQS Standard + DLQ;
-- ECR;
-- Secrets Manager/KMS;
-- CloudWatch + OpenTelemetry.
-
-`us-east-1` pode ser usada apenas como referência de custo; região produtiva permanece aberta. Alta disponibilidade produtiva, RTO/RPO e Multi-AZ dependem de requisitos não fornecidos.
-
-## 13. Custos e transição
-
-A estimativa de custos usa SQS como mensageria principal e MSK somente como comparação/evolução. Toda estimativa declara região, dimensionamento e itens excluídos.
-
-A arquitetura de transição permanece explicitamente hipotética porque o desafio não descreve legado; ela demonstra abordagem sem alegar fatos sobre o ambiente do cliente.
-
-## 14. Decisões consolidadas
-
-| Tema | Decisão | Referência |
-|---|---|---|
-| Decomposição | 2 serviços de negócio, 4 processos executáveis | ADR-001 / SDD |
-| Integração | assíncrona, at-least-once | ADR-002 |
-| Persistência | PostgreSQL com ownership por contexto | ADR-003 |
-| Publicação confiável | Transactional Outbox + Publisher independente | ADR-004 |
-| Idempotência | entrada HTTP + consumidor | ADR-005 / SDD |
-| Plataforma | AWS ECS/Fargate | ADR-006 |
-| Mensageria | SQS Standard + DLQ; Kafka como evolução condicional | ADR-007 |
-| Contrato | `TransactionCreatedV1` explícito e versionado | ADR-008 |
-| Recuperação | retry, DLQ/redrive, reconciliação e rebuild pela fonte | ADR-009 |
-| Data diária | `BusinessDate` calculado uma vez e propagado | ADR-008 / SDD / premissas |
-
-## 15. Gate documental
-
-A revisão transversal e a segunda passagem sob as perspectivas de Solutions Architect e Software Architect foram concluídas. A documentação está **pronta para validação humana**. Isso não transforma implementação ou testes em concluídos e não autoriza PR/merge sem a validação do responsável.
+A [matriz de conformidade](../01-requisitos/matriz-conformidade.md) separa cobertura documental de evidências futuras. Sem legado informado, transição de legado não é necessária; o caminho local→AWS está definido no plano de implantação.

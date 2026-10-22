@@ -1,42 +1,16 @@
-# ADR-001 — Separação das capacidades de Lançamentos e Consolidação
+# ADR-001 — Dois serviços de negócio e quatro processos
 
-- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
-- **Drivers:** RNF-001, RNF-013, ASR-001, ASR-008
+- **Estado:** APROVADO
+- **Direcionadores:** RNF-001/013, ASR-001/008.
 
-## Contexto
+## Alternativas
 
-O desafio exige que Lançamentos continue disponível quando a Consolidação diária estiver indisponível. Lançamentos representa fatos financeiros primários; Consolidação é projeção derivada. Os perfis de carga e falha também são distintos.
+Monólito de processo único reduz operação, mas compartilha interrupção e implantação entre registro e consolidação. Monólito modular melhora organização interna, porém um deployment único preserva esse acoplamento. Dois serviços independentes permitem parar Consolidação inteira e manter Lançamentos, com custo de integração distribuída.
 
-## Alternativas avaliadas
+## Decisão e consequências
 
-### Monólito/processo único
-Menor complexidade, porém compartilha domínio de falha e escala, enfraquecendo o RNF explícito de independência.
+Serviço Lançamentos: API e Worker publicador da Outbox. Serviço Consolidação: API e Worker consumidor. São quatro processos implantáveis, dois modelos de domínio e dois bancos; não quatro microsserviços de negócio. API e Worker compartilham responsabilidade pelo contexto, com credenciais e permissões distintas.
 
-### Monólito modular com um deployment
-Boa separação lógica, mas ainda compartilha ciclo de vida/processo e não demonstra isolamento operacional suficiente para o case.
+Separar Workers permite escalar e reiniciar integração sem interromper HTTP. A referência AWS mantém réplicas por processo; local usa uma instância de cada processo. Falha de banco/Worker/API de Consolidação não deve bloquear commit em Lançamentos. Infraestrutura compartilhada ainda pode falhar; não se promete independência de região, rede ou identidade.
 
-### Dois serviços independentes
-Isolamento operacional e escala independente, ao custo de integração distribuída, consistência eventual e observabilidade ponta a ponta.
-
-## Decisão
-
-Adotar **2 serviços de negócio**: `Transactions` e `Consolidation`.
-
-Cada serviço possui **2 processos executáveis** para separar caminho HTTP de processamento assíncrono:
-- Transactions API + Transactions Worker/Outbox Publisher;
-- Consolidation API + Consolidation Worker.
-
-Logo, a solução possui **2 serviços / 4 processos**, e não quatro microsserviços. API e Worker do mesmo serviço compartilham bounded context e ownership de dados, mas podem escalar e ser implantados independentemente.
-
-## Consequências
-
-- Consolidação não participa do caminho síncrono do lançamento;
-- integração é assíncrona e eventualmente consistente;
-- ownership de persistência é por serviço;
-- APIs e workers possuem health/scale independentes;
-- o ambiente deve permitir parar toda a Consolidação e manter Lançamentos operando;
-- não são criados serviços adicionais sem driver.
-
-## Validação posterior
-
-`ACEITO` significa que a decisão documental foi escolhida para o desafio. A garantia comportamental só muda para **VALIDADA POR EVIDÊNCIA** quando testes executados demonstrarem independência, recuperação e convergência.
+Validação futura: T06 e T07 da estratégia de testes. A decisão está aprovada; o comportamento ainda será implementado e medido.

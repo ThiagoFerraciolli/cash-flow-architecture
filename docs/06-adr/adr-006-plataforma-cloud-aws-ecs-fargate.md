@@ -1,31 +1,14 @@
-# ADR-006 — AWS como referência e ECS/Fargate para workloads
+# ADR-006 — AWS com ECS/Fargate
 
-- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
-- **Drivers:** RNF-008, RNF-010, RNF-012, RNF-013, ASR-008, ASR-009
+- **Estado:** APROVADO
+- **Direcionadores:** RNF-008/009/010/012/013, demonstração de caminho produtivo.
 
-## Contexto
+## Alternativas e decisão
 
-A entrega precisa demonstrar arquitetura-alvo, segurança, observabilidade, escalabilidade e custos. O desafio não exige cloud específica nem Kubernetes.
+EKS oferece plataforma Kubernetes, mas adiciona operação sem requisito que a justifique. Functions exigiriam adaptar execução/empacotamento e modelo de consumo. ECS/Fargate preserva containers das APIs/Workers e fornece escala e implantação independentes; adotado como referência AWS.
 
-## Alternativas
-
-**EKS/Kubernetes:** flexível, mas adiciona plataforma/cluster sem requisito que o justifique.  
-**ECS/Fargate:** containers, escala/deploy independente e operação reduzida.  
-**Functions:** válidas para outros perfis, porém mudariam desnecessariamente o modelo de APIs/workers do desafio.
-
-## Decisão
-
-Usar **AWS como referência documental** e **ECS/Fargate** para os quatro processos: Transactions API, Transactions Worker, Consolidation API e Consolidation Worker.
-
-RDS PostgreSQL atende persistência; SQS Standard + DLQ atende integração conforme ADR-007; ALB atende entrada HTTP; ECR, Secrets Manager/KMS, CloudWatch e OpenTelemetry completam as capacidades de plataforma.
+Quatro ECS Services, dois RDS PostgreSQL Multi-AZ, SQS/DLQ, ALB/WAF, Cognito, IAM, KMS, Secrets Manager, ECR e observabilidade. Duas zonas e NAT por zona. Quantidades e dimensionamento normativos na arquitetura AWS; preços e hipóteses na estimativa de custos. Terraform e pipeline com OIDC estão definidos no plano de implantação.
 
 ## Consequências
 
-- 2 serviços de negócio continuam existindo, apesar de 4 tasks/processos;
-- escala é independente por processo;
-- não há cluster Kubernetes para operar;
-- IAM Task Roles permitem menor privilégio;
-- custos são orientados a recursos/uso e precisam incluir rede/observabilidade;
-- eventual padrão corporativo Kubernetes permite remapeamento sem alterar domínio/contratos.
-
-Não são criados SLA, RTO, RPO, Multi-AZ ou cross-region como requisitos. Esses itens dependem de objetivos produtivos ausentes.
+Custo mínimo superior ao ambiente local, aceito para redundância e isolamento. Não há Kubernetes a operar. Multi-AZ não resolve falha regional ou corrupção lógica. Metas internas são adotadas e serão medidas; não representam SLA contratual. A decisão não autoriza provisionamento nesta branch documental.

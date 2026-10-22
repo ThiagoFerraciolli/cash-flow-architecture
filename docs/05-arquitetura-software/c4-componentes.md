@@ -1,72 +1,49 @@
-# C4 — Component View
+# C4 — Componentes de software
 
-- **Status:** EM REVISÃO FINAL — aguardando validação humana
+**Estado: DOCUMENTAÇÃO APROVADA.** Cada diagrama decompõe os processos de um serviço. Interfaces são portas; adaptadores de infraestrutura realizam acesso externo.
 
-## Serviço de Lançamentos
-
-Dois processos executam componentes do mesmo serviço.
+## Lançamentos
 
 ```mermaid
 flowchart LR
-  Client[Cliente] --> API[Transactions API]
-  API --> Create[CreateTransaction]
-  API --> Query[Query Use Cases]
-  Create --> Domain[FinancialTransaction]
-  Create --> Idem[Idempotency Store Port]
-  Create --> Repo[Transaction Repository]
-  Create --> Outbox[Outbox Store Port]
-  Idem --> Db[(Transactions PostgreSQL)]
-  Repo --> Db
-  Outbox --> Db
-  Worker[Transactions Worker] --> Claim[Outbox Claim/Retry]
-  Claim --> Db
-  Worker --> Pub[Message Publisher Port]
-  Pub --> Q[SQS Standard]
+    HTTP[API: autenticacao e contrato HTTP] --> UC[CriarLancamento]
+    HTTP --> QUERY[ConsultarLancamentos]
+    UC --> DOM[Entidade e invariantes]
+    UC --> IDEM[Porta de idempotencia]
+    UC --> REPO[Porta de fatos financeiros]
+    UC --> OUT[Porta de Outbox]
+    IDEM --> DB[(PostgreSQL)]
+    REPO --> DB
+    OUT --> DB
+    QUERY --> DB
+    WORK[Worker publicador] --> LEASE[Reserva e retentativa]
+    LEASE --> DB
+    WORK --> PUB[Porta de publicacao]
+    PUB --> ADP[Adaptador RabbitMQ ou SQS]
 ```
 
-O boundary transacional de `CreateTransaction` inclui lançamento, idempotência e Outbox. O Worker não participa da resposta HTTP. Publishers concorrentes capturam pendências de forma segura (`SKIP LOCKED` ou equivalente).
+CriarLancamento usa uma Unit of Work para chave, fato e Outbox. Reserva do publicador é transação diferente e curta; chamada de rede ocorre fora dela. Autenticação e autorização antecedem o caso de uso, e a identidade confiável é passada para auditoria/idempotência.
 
-## Serviço de Consolidação
+## Consolidação
 
 ```mermaid
 flowchart LR
-  Q[SQS Standard] --> Worker[Consolidation Worker]
-  Worker --> Consumer[TransactionCreatedV1 Handler]
-  Consumer --> Dedup[ProcessedEvent Store]
-  Consumer --> Apply[Apply Consolidation]
-  Dedup --> Db[(Consolidation PostgreSQL)]
-  Apply --> Db
-  Client[Cliente] --> API[Consolidation API]
-  API --> Query[Consolidation Queries]
-  Query --> Db
+    ADP[Adaptador RabbitMQ ou SQS] --> WORK[Worker consumidor]
+    WORK --> APPLY[AplicarLancamento]
+    APPLY --> CONTROL[Controle de manutencao e geracao]
+    APPLY --> DEDUP[Registro de identidade financeira]
+    APPLY --> SUM[Atualizacao relativa dos totais]
+    CONTROL --> DB[(PostgreSQL)]
+    DEDUP --> DB
+    SUM --> DB
+    HTTP[API autenticada] --> QUERY[Consulta da geracao ativa]
+    QUERY --> DB
 ```
 
-`ProcessedEvent` e UPSERT relativo da projeção pertencem ao mesmo commit. `DeleteMessage` ocorre somente depois desse commit.
+Controle, identidade e totais participam da mesma transação. O adaptador confirma somente após resultado comprometido no banco; erro transitório/permanente é traduzido em operação de transporte específica. Ferramenta administrativa usa portas próprias para snapshots/gerações, sem expor acesso cruzado no serviço.
 
-## Componentes transversais
+## Dependências e componentes transversais
 
-- `CashFlow.Contracts`: contratos de integração versionados, sem entidades de domínio;
-- clock/time-zone abstraction: permite derivar/testar `BusinessDate` deterministicamente;
-- OpenTelemetry instrumentation: HTTP, banco e mensageria;
-- Problem Details: erros HTTP consistentes;
-- configuração: retry, retenções e parâmetros operacionais externalizados.
+API/Worker → Application → Domain. Infrastructure → Application/Domain quando necessário ao mapeamento. A raiz de composição referencia Infrastructure para injeção. Contratos versionados não contêm regras compartilhadas. Clock, serialização canônica, configuração validada, Problem Details e OpenTelemetry são componentes transversais. Testes de arquitetura verificam ausência de dependência de SDK/ORM no domínio.
 
-## Dependências permitidas
-
-```text
-Api/Worker ------> Application ---> Domain
-Infrastructure --> Application
-Infrastructure --> Domain (mapeamento estritamente necessário)
-Contracts -------> boundaries de integração
-```
-
-Domain não referencia ASP.NET Core, EF Core, SDK AWS ou PostgreSQL. Application depende de portas, não do broker concreto.
-
-## Rastreabilidade
-
-- independência: API confirma por commit local; Workers são assíncronos;
-- confiabilidade: Outbox + SQS + DLQ;
-- idempotência: registro HTTP + `ProcessedEvent`;
-- concorrência: unicidade, `SKIP LOCKED`, UPSERT atômico;
-- recuperação: retry/redrive/reconciliação;
-- observabilidade: componentes e processos instrumentados independentemente.
+Detalhamento no [SDD](sdd.md); contratos e decisões são referenciados em vez de reproduzidos integralmente nesta visão.

@@ -1,82 +1,57 @@
-# Cash Flow Architecture
+# Arquitetura de Fluxo de Caixa
 
-Documentação arquitetural dos desafios de **Solutions Architect** e **Software Architect** para registro de lançamentos e consolidação diária.
+Documentação de arquitetura de solução e de software para os desafios Keyrus de Arquiteto de Soluções e Arquiteto de Software.
 
-> **Estado:** documentação integralmente revisada, incluindo comparação com os artefatos alternativos fornecidos pelo usuário, e **pronta para validação humana**. Esta branch não contém implementação C# nem evidências de testes executados. **Não abrir PR nem fazer merge antes da validação do responsável.**
+**Estado: DOCUMENTAÇÃO APROVADA.** Esta branch conclui a especificação. Implementação C#, infraestrutura como código, Docker Compose e execução dos testes pertencem à etapa seguinte e não foram iniciados. Aprovação documental não significa aplicação implementada, desempenho comprovado ou atendimento integral dos critérios executáveis dos PDFs.
 
-## Arquitetura em uma frase
+## Solução
 
-**2 serviços de negócio / 4 processos executáveis**, PostgreSQL por contexto, Transactional Outbox, integração assíncrona at-least-once por **SQS Standard + DLQ**, consumidor idempotente e consolidação eventualmente consistente.
+Dois serviços de negócio, Lançamentos e Consolidação, com quatro processos: duas APIs e dois Workers. PostgreSQL por contexto, Outbox transacional, entrega pelo menos uma vez e consumidor idempotente. O lançamento confirma após commit local, independentemente da Consolidação e do broker.
 
 ```mermaid
 flowchart LR
-    U[Consumidor] --> TA[Transactions API]
-    U --> CA[Consolidation API]
-    TA --> TDB[(Transactions DB)]
-    TW[Transactions Worker] --> TDB
-    TW --> Q[SQS Standard]
-    Q --> CW[Consolidation Worker]
-    Q -. redrive .-> D[DLQ]
-    CW --> CDB[(Consolidation DB)]
+    U[Consumidor autenticado] --> TA[API de Lançamentos]
+    U --> CA[API de Consolidação]
+    TA --> TDB[(Banco de Lançamentos)]
+    TW[Publicador da Outbox] --> TDB
+    TW --> Q[Broker: RabbitMQ local / SQS na AWS]
+    Q --> CW[Processador da Consolidação]
+    CW --> CDB[(Banco de Consolidação)]
     CA --> CDB
+    Q -. falhas persistentes .-> D[Fila de mensagens problemáticas]
 ```
 
-## Índice e ordem de leitura
+## Execução local
 
-1. `docs/01-requisitos/matriz-conformidade.md` — cobertura dos dois desafios;
-2. `docs/01-requisitos/requisitos-funcionais.md` e `requisitos-nao-funcionais.md`;
-3. `docs/01-requisitos/premissas.md` e `questoes-em-aberto.md`;
-4. `docs/02-asr/ASR.md` — drivers arquiteturais;
-5. `docs/03-arquitetura-solucao/DAS.md` — visão de solução;
-6. `docs/04-views/C4.md`, `Data-View.md`, `Integration-View.md`, `Dynamic-Views.md` e `Security-Resilience-Observability.md`;
-7. `docs/05-arquitetura-software/SDD.md` e `C4-Component.md`;
-8. `docs/06-adr/ADR-001..009` — decisões e trade-offs;
-9. `docs/07-infraestrutura/arquitetura-aws.md` e `estimativa-custos.md`;
-10. `docs/05-arquitetura-software/estrategia-testes.md` — evidências futuras;
-11. `docs/01-requisitos/matriz-rastreabilidade.md` — fechamento da cadeia requisito → evidência.
+O ambiente especificado usa Docker Compose, PostgreSQL, RabbitMQ e Keycloak local. Não exige conta AWS. **Ainda não existem aplicação ou comandos executáveis nesta branch.** O [guia local](docs/07-infraestrutura/execucao-local.md) define pré-requisitos, serviços, portas, sequência de inicialização, comandos previstos e critérios de aceite a implementar.
 
-## Decisões principais
+RabbitMQ é uma decisão para desenvolvimento local, não um emulador do SQS. O [ADR-010](docs/06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md) fixa as diferenças e a validação obrigatória de ambos os adaptadores.
 
-| Tema | Decisão |
-|---|---|
-| decomposição | 2 serviços: Lançamentos e Consolidação |
-| execução | API + Worker por serviço = 4 processos |
-| persistência | PostgreSQL com ownership separado |
-| dual write | Transactional Outbox |
-| mensageria | SQS Standard + DLQ; Kafka/MSK somente evolução condicional |
-| entrega | at-least-once, sem promessa de exactly-once |
-| contrato | `TransactionCreatedV1`, versionado e independente do broker |
-| idempotência | chave HTTP + hash; `ProcessedEvent` no consumidor |
-| concorrência | Outbox com `SKIP LOCKED`; consolidação com UPSERT relativo |
-| data diária | `BusinessDate` calculado em Lançamentos e propagado no evento |
-| recuperação | retry/backoff, DLQ/redrive, reconciliação e rebuild pela fonte de verdade |
-| observabilidade | OpenTelemetry + sinais de API, Outbox, SQS/DLQ e Workers |
-| cloud | AWS ECS/Fargate + RDS + SQS |
+## Caminho para AWS
 
-## Revisão das contribuições alternativas
+A [arquitetura AWS](docs/07-infraestrutura/arquitetura-aws.md) especifica ECS/Fargate, dois RDS PostgreSQL Multi-AZ, SQS e DLQ, ALB, Cognito, IAM, KMS e observabilidade. O [plano de implantação](docs/07-infraestrutura/implantacao-e-operacao.md) define provisionamento, promoção, reversão, restauração e critérios de liberação. Essa topologia está projetada; não foi provisionada.
 
-`docs-atualizado.zip` e `docs-consolidacao-decisoes.patch` foram tratados como **propostas**, não aplicados automaticamente. Foram aproveitados pontos que melhoraram correção/rastreabilidade, em especial a formalização do contrato/versionamento (ADR-008) e do tratamento de falhas/reconstrução (ADR-009).
+## Ordem de leitura
 
-Foram deliberadamente **não adotados** por falta de requisito/ASR que os justificasse: Kafka/MSK como baseline, timezone fixo `America/Sao_Paulo`, janela fixa de idempotência, retenções fixas de Outbox/ProcessedEvent, regra automática de aceitação de datas retroativas/futuras, scopes OAuth específicos e IdP concreto. Segurança continua definida por critérios e arquitetura-alvo, sem inventar modelo de identidade de negócio.
+1. [Conformidade com os PDFs](docs/01-requisitos/matriz-conformidade.md).
+2. [Requisitos funcionais](docs/01-requisitos/requisitos-funcionais.md), [não funcionais](docs/01-requisitos/requisitos-nao-funcionais.md), [premissas](docs/01-requisitos/premissas.md) e [restrições](docs/01-requisitos/restricoes.md).
+3. [Requisitos arquiteturalmente significativos](docs/02-asr/asr.md) e [capacidades e domínios](docs/03-arquitetura-solucao/capacidades-e-dominios.md).
+4. [Documento de arquitetura da solução](docs/03-arquitetura-solucao/das.md).
+5. [C4](docs/04-visoes/c4.md), [dados](docs/04-visoes/visao-dados.md), [integração](docs/04-visoes/visao-integracao.md), [fluxos](docs/04-visoes/visoes-dinamicas.md) e [segurança e observabilidade](docs/04-visoes/seguranca-resiliencia-observabilidade.md).
+6. [Design de software](docs/05-arquitetura-software/sdd.md), [componentes](docs/05-arquitetura-software/c4-componentes.md) e [contratos HTTP](docs/05-arquitetura-software/contratos-http.md).
+7. ADRs em [docs/06-adr](docs/06-adr): fonte normativa das decisões e dos trade-offs.
+8. [Parâmetros operacionais](docs/07-infraestrutura/parametros-operacionais.md), [recuperação](docs/07-infraestrutura/recuperacao-e-reconciliacao.md), [custos](docs/07-infraestrutura/estimativa-custos.md) e guias local/AWS.
+9. [Estratégia de testes](docs/05-arquitetura-software/estrategia-testes.md) e [rastreabilidade](docs/01-requisitos/matriz-rastreabilidade.md).
+10. [Registro de resolução da revisão](docs/01-requisitos/resolucao-da-revisao.md).
 
-## Segunda revisão integral
+## Fontes normativas e evolução
 
-### Perspectiva Solutions Architect
+Cada regra possui uma fonte principal: contratos HTTP no documento de contratos; evento no ADR-008; idempotência no ADR-005; recuperação no procedimento operacional; valores e metas na tabela de parâmetros. As demais visões explicam responsabilidades e referenciam essas fontes.
 
-Confirmados: capacidades e domínios; independência de disponibilidade; arquitetura-alvo AWS; segurança/IAM; observabilidade; recuperação; escala; custo; transição explicitamente hipotética; ausência de SLA/RTO/RPO inventados; SQS justificado pelos requisitos; Kafka mantido somente como evolução condicionada.
+Todos os textos e decisões estão aprovados para o escopo definido. Questões de expansão do negócio não bloqueiam a implementação desse escopo. Mudanças posteriores exigem atualização da decisão, dos contratos e dos testes associados.
 
-### Perspectiva Software Architect
+A próxima etapa, fora desta branch documental, é implementar o desenho e produzir evidências. Não há desenvolvimento, deploy, PR ou merge incluído nesta entrega documental.
 
-Confirmados: estrutura .NET; 4 executáveis coerentes com 2 serviços; boundaries transacionais; contrato versionado; precisão monetária; idempotência HTTP/consumer; concorrência do Publisher e consolidado; retry/DLQ/redrive; reconciliação/rebuild; testabilidade; SOLID/patterns com propósito; nenhum código implementado nesta etapa.
+## Convenção de nomenclatura
 
-## Limites conscientes
-
-SLA, RTO, RPO, região produtiva, volume diário, retenções produtivas, IdP/RBAC, timezone/calendário/fechamento definitivos, múltiplas moedas, contas/tenants e regras de estorno não são inventados. Premissas técnicas do MVP estão explicitamente marcadas.
-
-## Implementação e evidência
-
-Esta branch é documental. Implementação C#, Docker Compose, migrations e scripts k6 serão etapas posteriores. Uma decisão `ACEITA PARA A ARQUITETURA DO DESAFIO` não equivale a `VALIDADA POR EVIDÊNCIA`; disponibilidade, concorrência e 50 req/s só serão validados após testes realmente executados.
-
-## Gate atual
-
-**Próxima ação: validação humana desta branch.** Após essa validação, e somente se aprovada, poderá ser considerada a abertura de PR. Nenhum PR ou merge foi realizado nesta revisão.
+Arquivos de documentação e diretórios usam minúsculas e kebab-case, sem acentos nos caminhos. Os nomes descritivos são em português; siglas e identificadores técnicos convencionais, como `readme`, `c4`, `asr`, `das`, `sdd`, `adr`, `http` e `aws`, são preservados em minúsculas nos caminhos. Títulos e conteúdo usam português com acentuação normal. Renomeações devem atualizar links e referências textuais no mesmo conjunto de alterações.

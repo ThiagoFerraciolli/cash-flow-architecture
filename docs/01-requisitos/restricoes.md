@@ -1,36 +1,23 @@
-# Restrições
+# Restrições e limites de entrega
 
-## 1. Restrições impostas pelo desafio
+**Estado: DOCUMENTAÇÃO APROVADA.**
 
-- A solução deve atender ao controle de lançamentos de débito e crédito e ao consolidado diário.
-- O serviço de controle de lançamentos não deve ficar indisponível se o sistema de consolidado diário cair.
-- Em dias de pico, o serviço de consolidado diário recebe 50 requisições por segundo, com no máximo 5% de perda de requisições.
-- Na avaliação de Solutions Architect, são obrigatórios: mapeamento de domínios funcionais e capacidades de negócio, refinamento de requisitos funcionais e não funcionais, arquitetura-alvo completa, justificativa das escolhas de ferramentas/tecnologias e tipo de arquitetura, testes, README, repositório público e documentação no repositório.
-- Na avaliação de Software Architect, são obrigatórios: desenho da solução, implementação em C#, testes, README, repositório público e documentação no repositório. Boas práticas como Design Patterns, padrões arquiteturais e SOLID são explicitamente valorizadas.
-- O desafio permite que aspectos arquiteturais relevantes sejam demonstrados por decisões e representações arquiteturais, sem exigir que todas as premissas estejam codificadas.
+## Origem nos PDFs
 
-## 2. Diferenciais explicitamente solicitados para Solutions Architect
+Ambos pedem controle de lançamentos, consolidado diário, independência entre capacidades, 50 req/s e perda máxima de 5%. A entrega final deve incluir desenho, testes, README com funcionamento e execução local, repositório público e documentação versionada. Software exige C#; Soluções permite linguagem dominada e exige capacidades/domínios, refinamento e justificativas. A permissão para representar aspectos arquiteturais sem codificá-los não elimina os obrigatórios de aplicação e testes.
 
-Devem ser considerados na entrega:
-- arquitetura de transição, somente se houver cenário de legado/migração que a justifique;
-- estimativa de custos de infraestrutura e licenças;
-- monitoramento e observabilidade;
-- critérios de segurança para consumo e integração de serviços.
+Diferenciais de Soluções: custos/licenças, observabilidade, segurança de integração e transição se houver legado. Não há legado conhecido; transição de legado é não aplicável.
 
-## 3. Restrições e critérios da estratégia de entrega
+## Escopo desta branch
 
-Os itens abaixo orientam a execução do desafio, mas não são apresentados como requisitos de negócio:
+Somente documentação em português. Todas as decisões de texto estão aprovadas. Não iniciar C#, Docker Compose executável, migrations, scripts de teste, Terraform ou provisionamento até finalizar esta etapa. Exemplos em Markdown são contratos/documentação, não implementação.
 
-- O ambiente executável local deverá ser simples e reproduzível, preferencialmente containerizado.
-- Configurações devem ser externalizadas e segredos reais não podem ser versionados.
-- A implementação que atender à avaliação de Software Architect será feita em C#.
-- O domínio e os casos de uso devem evitar acoplamento desnecessário a tecnologias de infraestrutura.
-- Tecnologias de persistência, integração, cloud, padrões e estilo arquitetural serão formalmente escolhidos em ADRs após análise dos requisitos e ASRs.
-- Funcionalidades não exigidas pelo desafio somente serão implementadas quando contribuírem para requisito, ASR, risco ou critério de avaliação.
-- A documentação deve distinguir claramente: `IMPLEMENTADO`, `VALIDADO`, `ARQUITETURA-ALVO` e `EVOLUÇÃO`.
+Estados são separados: DOCUMENTAÇÃO APROVADA, IMPLEMENTAÇÃO PENDENTE e EVIDÊNCIA PENDENTE. Não marcar desempenho, disponibilidade ou execução local como demonstrados por existir um desenho. Repositório público foi confirmado em 22/10/2026 via metadados GitHub.
 
-## 4. Restrições de processo do repositório
+## Restrições técnicas aprovadas
 
-- Após o bootstrap inicial autorizado, alterações devem ocorrer por branch e Pull Request.
-- Pull Requests não devem ser integrados à `main` sem revisão e aprovação explícita do responsável pelo projeto.
-- Antes da abertura de novos Pull Requests, o conjunto de alterações deve ser revisado integralmente contra o desafio e contra a rastreabilidade existente.
+C#/.NET; PostgreSQL por contexto; RabbitMQ local; SQS AWS; dois serviços/quatro processos; domínio sem dependência de SDK; idempotência e recuperação transacionais; identidade e segurança obrigatórias; dados sintéticos na demonstração. Configurações e segredos externos. Valores e metas de referência são escolhas da arquitetura, não requisitos inventados do cliente.
+
+## Gestão de mudança
+
+Trabalhar na branch atual. Aprovação documental autoriza concluir os textos, não implica abrir PR, fazer merge ou provisionar. Mudança de escopo posterior deve atualizar requisito, ADR, contrato e teste afetado. A etapa seguinte implementará o desenho aprovado e acrescentará evidências verificáveis.

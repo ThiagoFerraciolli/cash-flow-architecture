@@ -1,41 +1,71 @@
 # ADR-007 — Kafka versus SQS para integração assíncrona
 
-- **Status:** PROPOSTO
+- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
+- **Drivers:** RNF-001, RNF-005, RNF-007, ASR-001, ASR-003, ASR-005
+- **Relacionados:** ADR-002, ADR-003
 
 ## Contexto
 
-ADR-002 selecionou Kafka como tecnologia de referência por retenção, replay, backlog e recuperação. A arquitetura-alvo AWS torna necessário confrontar essa decisão com custo e simplicidade operacional.
+A integração precisa permitir que Lançamentos continue aceitando operações quando a Consolidação estiver indisponível e deve recuperar trabalho pendente posteriormente.
 
-O case informa 50 req/s no consolidado, o que **não é volume suficiente, isoladamente, para justificar Kafka**.
+O case informa 50 req/s no serviço de consolidado. Ele não exige replay histórico arbitrário, múltiplos grupos de consumidores, event sourcing ou plataforma de streaming. Portanto, a decisão deve privilegiar a menor solução que satisfaça os requisitos e ASRs, sem confundir capacidade opcional com necessidade.
 
 ## Alternativas
 
 ### Amazon MSK / Kafka
-- event log retido;
-- replay/reprocessamento natural;
+
+Vantagens:
+- log retido e offsets;
+- replay natural;
 - múltiplos consumidores independentes;
-- maior custo e complexidade.
+- bom encaixe para event streaming.
 
-### Amazon SQS
-- entrega assíncrona gerenciada;
-- retry/DLQ simples;
-- cobrança por uso e baixo baseline;
-- não possui o mesmo modelo de log retido/replay arbitrário de Kafka.
+Custos:
+- maior baseline financeiro;
+- maior superfície operacional;
+- particionamento, retenção e operação do cluster passam a ser preocupações arquiteturais.
 
-## Decisão para o desafio
+### Amazon SQS Standard
 
-**Manter Kafka na arquitetura de referência**, porque replay e recuperação são capacidades explicitamente valorizadas no desenho e tornam a demonstração de recuperação após indisponibilidade mais clara.
+Vantagens:
+- serviço gerenciado e cobrança por uso;
+- desacoplamento temporal e backlog durável;
+- redelivery, visibility timeout e DLQ/redrive nativos;
+- escala muito superior à carga conhecida;
+- menor esforço operacional para o problema atual.
 
-Entretanto, registrar SQS como alternativa economicamente preferível se, após validação com negócio/operação, os requisitos reais forem apenas desacoplamento, retry e entrega confiável sem necessidade de event log, múltiplos consumidores ou replay histórico.
+Limites:
+- não é event log;
+- não oferece replay histórico arbitrário após remoção da mensagem;
+- não garante ordenação global.
+
+Esses limites não violam requisitos conhecidos: a consolidação é uma projeção derivável do banco de Lançamentos, e somas de créditos/débitos não dependem de ordem.
+
+## Decisão
+
+Usar **Amazon SQS Standard** na arquitetura AWS de referência.
+
+A recuperação normal ocorre pelo backlog da fila. A recuperação de mensagens problemáticas ocorre por DLQ + redrive. Para divergência ou reconstrução excepcional, a fonte de verdade é o banco de Lançamentos e a projeção é refeita/reconciliada de forma controlada.
+
+Kafka/MSK deixa de ser a escolha padrão porque suas capacidades adicionais não são requeridas pelo desafio e pioram custo/simplicidade. Essa mudança não altera os bounded contexts nem a semântica at-least-once.
+
+## Por que Standard e não FIFO
+
+O domínio conhecido não exige ordenação. O consumidor é idempotente e o consolidado usa incrementos atômicos, portanto duplicidade/redelivery são tratados explicitamente. Introduzir FIFO e `MessageGroupId` exigiria inventar uma chave de ordenação de negócio que o case não fornece.
 
 ## Consequências
 
-- Kafka não será defendido por throughput;
-- a Cost View deve evidenciar o custo/complexidade da decisão;
-- implementação deve evitar dependências de domínio desnecessárias do broker;
-- trocar o adaptador de integração por SQS não deve alterar o domínio financeiro;
-- esta decisão pode ser revisitada sem mudar as fronteiras de Transactions e Consolidation.
+- arquitetura e Cost View devem mostrar SQS + DLQ, não MSK;
+- observabilidade usa métricas de fila/idade/DLQ em vez de consumer lag Kafka;
+- contratos e domínio permanecem independentes do broker;
+- a documentação de testes deve incluir indisponibilidade da fila, redelivery, DLQ/redrive e reconciliação;
+- Kafka permanece opção de evolução se surgirem requisitos reais de replay histórico, event streaming ou vários consumidores independentes.
 
-## Critério de reavaliação
+## Critérios de reavaliação
 
-Preferir SQS se replay histórico/múltiplos consumidores não forem requisitos e o TCO de MSK não for justificável. Manter Kafka se retenção/replay/event streaming forem requisitos operacionais confirmados.
+Reabrir este ADR se surgir pelo menos um requisito que altere materialmente a decisão, como:
+- replay histórico arbitrário como operação frequente;
+- múltiplos grupos de consumidores independentes sobre o mesmo histórico;
+- retenção longa do event log como requisito;
+- processamento sequencial por chave de negócio explicitamente definida;
+- adoção corporativa obrigatória de uma plataforma Kafka já operada e cujo custo incremental seja baixo.

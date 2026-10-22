@@ -2,6 +2,11 @@
   "version": 1,
   "dependencies": {
     "net10.0": {
+      "Npgsql": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "xZAYhPOU2rUIFpV48xsqhCx9vXs6Y+0jX2LCoSEfDFYMw9jtAOUk3iQsCnDLrFIv9NT3JGMihn7nnuZsPKqJmA=="
+      },
       "cashflow.transactions.application": {
         "type": "Project",
         "dependencies": {
@@ -15,7 +20,8 @@
         "type": "Project",
         "dependencies": {
           "CashFlow.Transactions.Application": "[1.0.0, )",
-          "CashFlow.Transactions.Domain": "[1.0.0, )"
+          "CashFlow.Transactions.Domain": "[1.0.0, )",
+          "Npgsql": "[10.0.0, )"
         }
       }
     }

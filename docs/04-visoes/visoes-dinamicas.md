@@ -30,7 +30,7 @@ sequenceDiagram
     participant P as Publicador
     participant D as Banco Lancamentos
     participant Q as Broker
-    P->>D: BEGIN; SKIP LOCKED; gravar lease/token; COMMIT
+    P->>D: BEGIN, SKIP LOCKED, gravar lease/token, COMMIT
     P->>Q: Publicar fora da transacao
     alt confirmado
         Q-->>P: Confirmacao
@@ -50,7 +50,7 @@ sequenceDiagram
     participant W as Consumidor
     participant D as Banco Consolidacao
     Q->>W: Evento
-    W->>D: BEGIN; FOR SHARE em projection_control
+    W->>D: BEGIN, FOR SHARE em projection_control
     alt em manutencao
         W->>D: Encerrar sem alteracao
         W->>W: Pausar recepcao e nao confirmar entrega
@@ -76,7 +76,7 @@ sequenceDiagram
     participant C as Banco Consolidacao
     participant T as Banco Lancamentos
     participant W as Consumidor
-    O->>C: FOR UPDATE; esperar consumos; maintenance=true; COMMIT
+    O->>C: FOR UPDATE, esperar consumos, maintenance=true, COMMIT
     W->>C: Detectar manutencao e pausar sem ack
     O->>T: Snapshot consistente de todos os fatos
     Note over T: Novos lancamentos continuam permitidos

@@ -1,7 +1,5 @@
 # Arquitetura-alvo na AWS
 
-**Estado: DOCUMENTAÇÃO APROVADA; NÃO PROVISIONADA.** Região técnica de referência us-east-1. A adoção em cliente real requer confirmar residência de dados antes de armazenar dados reais; isso não impede a homologação com dados sintéticos.
-
 ## Topologia de referência
 
 VPC com duas zonas de disponibilidade, duas subnets públicas para ALB/NAT e subnets privadas para aplicações e bancos. Um NAT Gateway por zona, rotas de saída na mesma zona e endpoint gateway S3. Sem IP público em tasks/RDS. Essa escolha torna o custo de conectividade explícito; endpoints de interface são otimização futura mediante medição.

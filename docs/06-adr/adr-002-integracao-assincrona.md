@@ -1,6 +1,5 @@
 # ADR-002 — Integração assíncrona orientada a eventos
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-001/004/005/007, ASR-001/002/003/005.
 
 ## Alternativas e decisão

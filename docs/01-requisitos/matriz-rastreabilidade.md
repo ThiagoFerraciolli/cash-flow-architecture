@@ -1,7 +1,5 @@
 # Matriz de rastreabilidade
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Cadeia: origem → requisito → ASR → decisão → desenho → teste. Os IDs Txx referenciam a estratégia de testes; todos dependem de implementação e execução futuras.
-
 | Origem/requisito | ASR | Decisão e representação | Testes |
 |---|---|---|---|
 | RN-001 / RF-001 | 002/004/007 | ADR-003/004/005; SDD; contrato POST | T01/T02/T03/T13 |

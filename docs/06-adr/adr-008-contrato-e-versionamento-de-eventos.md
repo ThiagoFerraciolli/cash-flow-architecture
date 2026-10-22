@@ -1,6 +1,5 @@
 # ADR-008 — Contrato canônico do evento
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-006/010/014, ASR-003/004/009.
 
 ## Contrato TransactionCreatedV1

@@ -1,6 +1,6 @@
 # DAS — Documento de arquitetura da solução
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Escopo: controle de lançamentos e relatório diário dos dois desafios Keyrus. O objetivo é preservar registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e implantação demonstrável na AWS.
+Escopo: controle de lançamentos e relatório diário dos dois desafios Keyrus. O objetivo é preservar registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e implantação demonstrável na AWS.
 
 ## Direcionadores e limites
 

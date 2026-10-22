@@ -1,6 +1,5 @@
 # ADR-007 — SQS Standard como broker AWS
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-001/005/007; simplicidade operacional e custo.
 
 ## Alternativas

@@ -1,8 +1,5 @@
 # Arquitetura de Fluxo de Caixa
 
-Documentação de arquitetura de solução e de software para os desafios Keyrus de Arquiteto de Soluções e Arquiteto de Software.
-
-**Estado: DOCUMENTAÇÃO APROVADA.** Esta branch conclui a especificação. Implementação C#, infraestrutura como código, Docker Compose e execução dos testes pertencem à etapa seguinte e não foram iniciados. Aprovação documental não significa aplicação implementada, desempenho comprovado ou atendimento integral dos critérios executáveis dos PDFs.
 
 ## Solução
 

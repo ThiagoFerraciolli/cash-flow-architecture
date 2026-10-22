@@ -1,7 +1,5 @@
 # Matriz de conformidade com os PDFs
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Fontes: Case - Arquiteto de Soluções.pdf (3 páginas) e Case - Arquiteto de Software.pdf (3 páginas), fornecidos pelo usuário. A matriz usa as instruções dos documentos como critérios de avaliação; ações desta branch seguem o pedido explícito de finalizar somente documentação.
-
 Legenda: **D** = cobertura documental aprovada; **I** = implementação futura; **E** = execução/evidência futura; **NA** = não aplicável. D não significa atendimento executável.
 
 | Critério e localização na fonte | Artefato principal | Cobertura documental | Entrega final |
@@ -26,9 +24,3 @@ Legenda: **D** = cobertura documental aprovada; **I** = implementação futura; 
 | Custos e licenças — Soluções p.3 | estimativa-custos | D: memória de cálculo e fontes | Atualizar cotação antes de provisionar |
 | Observabilidade — Soluções p.3 | segurança/observabilidade/parâmetros | D | I + E T14 |
 | Segurança de integração — Soluções p.3 | ADR-010/011/segurança | D | I + E T09/T13 |
-
-## Resultado
-
-O escopo documental está fechado e aprovado, com decisões operacionais, contratos e testes especificados. O desafio completo ainda requer implementação, execução local real e resultados de testes. Esses itens foram deliberadamente reservados para a próxima etapa pelo usuário; não são apresentados como cumpridos nesta branch.
-
-Originais consultados: `/Users/thiago/Downloads/Keyrus/Case - Arquiteto de Soluções.pdf` e `/Users/thiago/Downloads/Keyrus/Case - Arquiteto de Software.pdf`. Os PDFs não foram copiados para o repositório; esta matriz identifica páginas e critérios para rastreabilidade, sem depender desses caminhos para executar futuramente o projeto.

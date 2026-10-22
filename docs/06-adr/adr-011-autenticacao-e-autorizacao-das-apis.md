@@ -1,6 +1,5 @@
 # ADR-011 — Autenticação e autorização das APIs
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-009; clientes técnicos, execução local independente de AWS e implantação gerenciada na AWS.
 
 ## Decisão

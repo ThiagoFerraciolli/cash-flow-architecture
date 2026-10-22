@@ -1,7 +1,5 @@
 # Visões dinâmicas — fluxos críticos
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Os fluxos representam comportamento a implementar; não são evidências executadas.
-
 ## Registro e concorrência de chave
 
 ```mermaid

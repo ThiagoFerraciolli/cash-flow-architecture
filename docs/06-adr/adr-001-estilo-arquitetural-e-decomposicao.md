@@ -1,6 +1,5 @@
 # ADR-001 — Dois serviços de negócio e quatro processos
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-001/013, ASR-001/008.
 
 ## Alternativas

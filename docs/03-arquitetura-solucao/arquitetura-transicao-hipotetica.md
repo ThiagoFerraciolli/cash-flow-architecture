@@ -1,6 +1,6 @@
 # Transição arquitetural e aplicabilidade
 
-**Estado: DOCUMENTAÇÃO APROVADA.** O PDF de Soluções condiciona transição à necessidade de migração de legado. Não há legado informado; portanto esse diferencial é **não aplicável ao escopo**, sem pendência de arquitetura.
+O PDF de Soluções condiciona transição à necessidade de migração de legado. Não há legado informado; portanto esse diferencial é **não aplicável ao escopo**, sem pendência de arquitetura.
 
 A passagem efetiva local→AWS está definida no [plano de implantação](../07-infraestrutura/implantacao-e-operacao.md), incluindo homologação, adaptador SQS, identidade, dados e reversão. Ela não pressupõe migrar dados produtivos de uma máquina local.
 

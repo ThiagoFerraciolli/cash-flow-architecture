@@ -1,7 +1,5 @@
 # Resolução da revisão arquitetural
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Registro de fechamento da revisão na branch documental. Data: 22/10/2026. Todas as ações abaixo são documentais; implementação e evidências continuam reservadas à próxima etapa por instrução do responsável.
-
 | Ponto da revisão | Resolução adotada | Evidência documental |
 |---|---|---|
 | Entrega ainda sem C#/testes | Separação explícita de conformidade documental e executável; plano e critérios completos | Matriz de conformidade; README; estratégia de testes |

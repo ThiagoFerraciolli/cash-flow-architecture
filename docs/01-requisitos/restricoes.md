@@ -1,7 +1,5 @@
 # Restrições e limites de entrega
 
-**Estado: DOCUMENTAÇÃO APROVADA.**
-
 ## Origem nos PDFs
 
 Ambos pedem controle de lançamentos, consolidado diário, independência entre capacidades, 50 req/s e perda máxima de 5%. A entrega final deve incluir desenho, testes, README com funcionamento e execução local, repositório público e documentação versionada. Software exige C#; Soluções permite linguagem dominada e exige capacidades/domínios, refinamento e justificativas. A permissão para representar aspectos arquiteturais sem codificá-los não elimina os obrigatórios de aplicação e testes.

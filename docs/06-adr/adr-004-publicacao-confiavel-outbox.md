@@ -1,6 +1,5 @@
 # ADR-004 — Outbox transacional com reserva temporária
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-004, ASR-002; isolamento de falhas e concorrência entre publicadores.
 
 ## Decisão

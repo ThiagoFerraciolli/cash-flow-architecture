@@ -1,7 +1,5 @@
 # Procedimentos de recuperação e reconciliação
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Especificação operacional a implementar e ensaiar; nenhum procedimento foi executado nesta branch.
-
 ## Autoridade, segurança e registro
 
 A ferramenta administrativa futura será executada fora das APIs públicas por operador autenticado. Usa leitura da base de Lançamentos e escrita restrita na base de Consolidação; credenciais próprias, temporárias na AWS, sem conceder acesso cruzado aos serviços de negócio. Cada execução registra runId, operador, motivo, horários, snapshot, gerações, contagens, somas, resultado e erros sanitizados. Reconciliação e rebuild da projeção não interrompem o registro de lançamentos. Restore da própria fonte é exceção: exige indisponibilidade controlada de escrita para definir um corte seguro.

@@ -1,6 +1,6 @@
 # Requisitos arquiteturalmente significativos — ASRs
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Os ASRs conectam requisitos às decisões aprovadas; não confundem escolha técnica com exigência original do PDF.
+Os ASRs conectam requisitos às decisões aprovadas; não confundem escolha técnica com exigência original do PDF.
 
 | ID | Direcionador e origem | Consequência arquitetural | Fonte da decisão |
 |---|---|---|---|

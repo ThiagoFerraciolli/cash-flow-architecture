@@ -1,50 +1,42 @@
 # ADR-005 — Idempotência no registro e no processamento
 
-- **Status:** PROPOSTO — aguardando validação
+- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
 - **Drivers:** RNF-006, ASR-004
 
 ## Contexto
 
-Retries de cliente, falhas de rede e semântica at-least-once podem repetir uma operação. Para um fluxo financeiro, repetição não pode criar um novo efeito financeiro indevido.
+Retry de cliente e entrega at-least-once podem repetir operações. Em fluxo financeiro, repetição não pode criar efeito adicional.
 
-## Decisão proposta
+## Decisão — entrada HTTP
 
-Aplicar idempotência em duas fronteiras diferentes.
+`Idempotency-Key` é obrigatório em `POST /transactions` e persistido em `IdempotencyRecord`, separado da entidade financeira. O registro contém chave, SHA-256 do payload canônico, `transaction_id`, resposta lógica e expiração.
 
-### Entrada da API de lançamentos
+No MVP, sem identidade de cliente definida, a chave é global. Se surgir `client_id` confiável, a evolução é unicidade `(client_id, key)`.
 
-`POST /transactions` aceitará uma chave de idempotência fornecida pelo consumidor (`Idempotency-Key`). Para uma mesma chave e mesma operação, retries devem retornar o resultado lógico já produzido em vez de criar outro lançamento.
+Semântica:
+- chave ausente → 400;
+- primeira operação → 201;
+- mesma chave + mesmo hash → replay da resposta original, sem novo lançamento, com `Idempotent-Replayed: true`;
+- mesma chave + hash diferente → 409;
+- concorrência é arbitrada por unique constraint e releitura determinística.
 
-A política de retenção das chaves é operacional e dependerá do contrato/volume; não será declarada arbitrariamente como requisito de negócio.
+A janela de retenção é configuração explícita do MVP, não regra de negócio fornecida.
 
-### Consumo no Consolidation Service
+## Decisão — consumo
 
-Cada evento possuirá `eventId` único. O consumidor manterá controle persistente dos eventos já aplicados.
+Cada evento possui `eventId`. Na mesma transação do consolidado:
+1. `INSERT processed_event ... ON CONFLICT DO NOTHING`;
+2. se já existir, no-op bem-sucedido;
+3. se novo, UPSERT atômico da projeção;
+4. commit;
+5. somente depois, `DeleteMessage` na SQS.
 
-A atualização de `daily_consolidations` e o registro de `eventId` processado ocorrerão na mesma transação local do banco da consolidação.
-
-Fluxo conceitual:
-
-```text
-BEGIN
-  if eventId already processed:
-      no-op
-  else:
-      update daily_consolidation
-      insert processed_event(eventId)
-COMMIT
-```
-
-## Alternativas consideradas
-
-- confiar apenas em retries do broker: insuficiente;
-- deduplicação somente em memória: perde estado após restart e não funciona entre instâncias;
-- exactly-once como promessa ponta a ponta: evitado, pois depende de limites transacionais e integrações que não abrangem todo o fluxo.
+Rollback desfaz deduplicação e projeção juntas.
 
 ## Consequências
 
-- retries são seguros dentro do contrato definido;
-- redelivery não causa dupla contabilização;
-- é necessário lifecycle/retention para registros técnicos;
-- constraints únicas no banco reforçam a garantia;
-- a solução permanece compatível com semântica at-least-once.
+- redelivery e crash depois do commit são seguros;
+- deduplicação não depende de memória;
+- não se promete exactly-once ponta a ponta;
+- retenção de registros técnicos deve ser operacionalmente definida;
+- testes de concorrência são obrigatórios antes de afirmar validação.

@@ -1,4 +1,5 @@
 using CashFlow.Transactions.Domain;
+using CashFlow.Transactions.Application;
 using CashFlow.Transactions.Infrastructure;
 using Npgsql;
 using Xunit;
@@ -26,10 +27,17 @@ public sealed class PostgresTransactionTests
             await using (var migration = source.CreateCommand(await File.ReadAllTextAsync(
                 Path.Combine(AppContext.BaseDirectory, "001_financial_transactions.sql"), TestContext.Current.CancellationToken)))
                 await migration.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            await using (var migration = source.CreateCommand(await File.ReadAllTextAsync(
+                Path.Combine(AppContext.BaseDirectory, "002_idempotency_outbox.sql"), TestContext.Current.CancellationToken)))
+                await migration.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             var repository = new PostgresTransactionRepository(source);
+            var creationStore = new PostgresTransactionCreationStore(source);
             var value = new FinancialTransaction(Guid.NewGuid(), Guid.NewGuid(), TransactionType.Debit, 999_999_999.99m,
                 "teste", DateTimeOffset.Parse("2026-10-22T01:00:00Z"), new DateOnly(2026, 10, 21), DateTimeOffset.UtcNow);
-            await repository.InsertAsync(value, TestContext.Current.CancellationToken);
+            var created = await creationStore.CreateOrReplayAsync(new AuthenticatedClientIdentity("https://issuer.example", "test-client"),
+                Guid.NewGuid(), CanonicalTransactionHash.Compute(value), CanonicalTransactionHash.Version,
+                value, Guid.NewGuid().ToString(), TestContext.Current.CancellationToken);
+            Assert.Equal(CreateTransactionStatus.Created, created.Status);
             var actual = await repository.GetAsync(value.Id, TestContext.Current.CancellationToken);
             Assert.NotNull(actual);
             Assert.Equal(value.Amount, actual.Amount);

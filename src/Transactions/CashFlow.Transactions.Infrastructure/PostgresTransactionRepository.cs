@@ -7,24 +7,6 @@ namespace CashFlow.Transactions.Infrastructure;
 
 public sealed class PostgresTransactionRepository(NpgsqlDataSource dataSource) : ITransactionRepository
 {
-    public async Task InsertAsync(FinancialTransaction value, CancellationToken cancellationToken)
-    {
-        await using var command = dataSource.CreateCommand("""
-            INSERT INTO financial_transactions
-              (id, creation_event_id, type, amount, description, occurred_at, business_date, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            """);
-        command.Parameters.AddWithValue(value.Id);
-        command.Parameters.AddWithValue(value.CreationEventId);
-        command.Parameters.AddWithValue(value.Type.ToString().ToUpperInvariant());
-        command.Parameters.AddWithValue(value.Amount);
-        command.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)value.Description ?? DBNull.Value);
-        command.Parameters.AddWithValue(value.OccurredAt);
-        command.Parameters.AddWithValue(value.BusinessDate);
-        command.Parameters.AddWithValue(value.CreatedAt);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     public async Task<FinancialTransaction?> GetAsync(Guid id, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand("""
@@ -59,7 +41,7 @@ public sealed class PostgresTransactionRepository(NpgsqlDataSource dataSource) :
         return values;
     }
 
-    private static FinancialTransaction Read(NpgsqlDataReader reader) => new(
+    internal static FinancialTransaction Read(NpgsqlDataReader reader) => new(
         reader.GetGuid(0), reader.GetGuid(1), Enum.Parse<TransactionType>(reader.GetString(2), true),
         reader.GetDecimal(3), reader.IsDBNull(4) ? null : reader.GetString(4),
         reader.GetFieldValue<DateTimeOffset>(5), reader.GetFieldValue<DateOnly>(6), reader.GetFieldValue<DateTimeOffset>(7));

@@ -1,22 +1,66 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.Json;
 using CashFlow.Transactions.Application;
 using CashFlow.Transactions.Domain;
 using CashFlow.Transactions.Infrastructure;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+var authority = builder.Configuration["Authentication:Authority"] ?? throw new InvalidOperationException("Authentication:Authority is required.");
+var issuer = builder.Configuration["Authentication:Issuer"] ?? throw new InvalidOperationException("Authentication:Issuer is required.");
+var audience = builder.Configuration["Authentication:Audience"] ?? throw new InvalidOperationException("Authentication:Audience is required.");
+var allowedClients = (builder.Configuration["Authentication:AllowedClientIds"] ?? throw new InvalidOperationException("Authentication:AllowedClientIds is required."))
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
+if (allowedClients.Count == 0) throw new InvalidOperationException("At least one allowed client ID is required.");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
     context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.Items["CorrelationId"]?.ToString());
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.Authority = authority;
+    options.Audience = audience;
+    options.RequireHttpsMetadata = builder.Configuration.GetValue("Authentication:RequireHttpsMetadata", true);
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidIssuer = issuer,
+        ValidateAudience = true,
+        ValidAudience = audience,
+        ValidateLifetime = true,
+        RequireExpirationTime = true,
+        RequireSignedTokens = true,
+        ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+        ClockSkew = TimeSpan.FromSeconds(60)
+    };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context =>
+        {
+            var clientId = context.Principal?.FindFirst("client_id")?.Value;
+            if (string.IsNullOrWhiteSpace(clientId) || !allowedClients.Contains(clientId))
+                context.Fail("Client ID is missing or not allowed.");
+            return Task.CompletedTask;
+        }
+    };
+});
+builder.Services.AddAuthorization(options => options.AddPolicy("transactions.write", policy =>
+    policy.RequireAuthenticatedUser().RequireAssertion(context =>
+        context.User.FindAll("permissions").Any(claim => claim.Value == "transactions.write") ||
+        context.User.FindAll("scope").Any(claim => claim.Value.Split(' ').Contains("cashflow/transactions.write")))));
+builder.Services.AddSingleton<ValidatedClientIdentityAdapter>();
 builder.Services.AddSingleton(TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Transactions:TimeZone"] ?? "America/Sao_Paulo"));
 builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Transactions") ??
     throw new InvalidOperationException("ConnectionStrings:Transactions is required.")));
 builder.Services.AddScoped<ITransactionRepository, PostgresTransactionRepository>();
+builder.Services.AddScoped<ITransactionCreationStore, PostgresTransactionCreationStore>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddHealthChecks().AddCheck("self", () => HealthCheckResult.Healthy(), ["live", "ready"])
     .AddCheck<PostgresHealthCheck>("postgresql", tags: ["ready"]);
@@ -39,14 +83,16 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
         ? StatusCodes.Status503ServiceUnavailable
         : StatusCodes.Status500InternalServerError
 });
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = x => x.Tags.Contains("live") });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = x => x.Tags.Contains("ready") });
 
-app.MapPost("/transactions", async (HttpContext http, TransactionService service, CancellationToken ct) =>
+app.MapPost("/transactions", async (HttpContext http, TransactionService service,
+    ValidatedClientIdentityAdapter identityAdapter, CancellationToken ct) =>
 {
-    // The header retains the contract shape. Atomic key/fact/outbox persistence belongs to Phase 3.
     if (http.Request.ContentLength > 16 * 1024) return Problem(413, "Body exceeds 16 KiB.");
-    if (!Guid.TryParse(http.Request.Headers["Idempotency-Key"], out _)) return Problem(400, "Invalid Idempotency-Key.");
+    if (!Guid.TryParse(http.Request.Headers["Idempotency-Key"], out var idempotencyKey)) return Problem(400, "Invalid Idempotency-Key.");
     try
     {
         using var document = await JsonDocument.ParseAsync(http.Request.Body, new JsonDocumentOptions { MaxDepth = 8 }, ct);
@@ -69,14 +115,18 @@ app.MapPost("/transactions", async (HttpContext http, TransactionService service
             if (descriptionJson.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) return Problem(400, "Invalid description.");
             description = descriptionJson.ValueKind == JsonValueKind.String ? descriptionJson.GetString() : null;
         }
-        var transaction = await service.CreateAsync(type, amount, description, occurredAt, ct);
+        var result = await service.CreateAsync(identityAdapter.FromValidatedClaims(http.User), idempotencyKey,
+            type, amount, description, occurredAt, http.Items["CorrelationId"]!.ToString()!, ct);
+        if (result.Status == CreateTransactionStatus.Conflict) return Problem(409, "Idempotency key was used for another command.");
+        var transaction = result.Transaction!;
+        if (result.Status == CreateTransactionStatus.Replayed) http.Response.Headers["Idempotent-Replayed"] = "true";
         return Results.Created($"/transactions/{transaction.Id}", Dto(transaction));
     }
     catch (Exception error) when (error is JsonException or ArgumentException or OverflowException)
     {
         return Problem(400, "Invalid transaction.");
     }
-});
+}).RequireAuthorization("transactions.write");
 app.MapGet("/transactions/{id:guid}", async (Guid id, TransactionService service, CancellationToken ct) =>
 {
     var transaction = await service.GetAsync(id, ct);
@@ -147,3 +197,10 @@ internal sealed class PostgresHealthCheck(NpgsqlDataSource source) : IHealthChec
     }
 }
 public partial class Program;
+
+internal sealed class ValidatedClientIdentityAdapter
+{
+    public AuthenticatedClientIdentity FromValidatedClaims(ClaimsPrincipal principal) => new(
+        principal.FindFirst("iss")?.Value ?? throw new InvalidOperationException("Validated issuer is missing."),
+        principal.FindFirst("client_id")?.Value ?? throw new InvalidOperationException("Validated client ID is missing."));
+}

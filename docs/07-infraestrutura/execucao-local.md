@@ -1,8 +1,8 @@
 # Execução local — especificação do ambiente
 
-## Estado executável atual — Fase 2
+## Estado executável atual — Fase 3
 
-O `compose.yaml` desta branch executa somente `postgres` e `transactions-api`. Requer Docker Engine com Compose v2. Na raiz do repositório:
+O `compose.yaml` desta branch executa `postgres` e `transactions-api`, além de um job `migrate` que encerra após aplicar as migrations. Requer Docker Engine com Compose v2. Na raiz do repositório:
 
 ```sh
 docker compose up -d --build
@@ -13,20 +13,23 @@ curl --fail http://127.0.0.1:8081/health/ready
 
 A Transactions API está em `127.0.0.1:8081`, e o PostgreSQL local está em `127.0.0.1:5433`. Dentro do Compose, a API conecta-se a `postgres:5432`. O fuso de negócio padrão é `America/Sao_Paulo`. O banco e usuário locais são `cashflow`; a senha padrão `cashflow_local_only` serve apenas ao desenvolvimento e pode ser substituída por `POSTGRES_PASSWORD` no ambiente ou em `.env` local ignorado pelo Git.
 
-Os dados persistem em `./runtime-data/postgres`, ignorado pelo Git. Em um banco vazio, o entrypoint do PostgreSQL aplica `001_financial_transactions.sql`; o healthcheck exige a tabela criada antes de a API iniciar. Esse bootstrap local não substitui o job de migrations previsto para produção.
+Os dados persistem em `./runtime-data/postgres`, ignorado pelo Git. Após o PostgreSQL ficar saudável, o job `migrate` aplica `001_financial_transactions.sql` e `002_idempotency_outbox.sql` em ordem; a API aguarda o término bem-sucedido do job. Isso também atualiza um banco local criado na Fase 2 sem apagar seus lançamentos. O job local não define a topologia de migrations de produção.
 
-Exemplo executável nesta fase, sem autenticação:
+O POST exige JWT assinado e validado, com `iss`, `aud=cashflow-api`, `client_id` permitido e permissão lógica `transactions.write`. Configure `CASHFLOW_AUTHORITY` com a URL de discovery/JWKS do emissor confiável, `CASHFLOW_ISSUER` com o issuer esperado e `CASHFLOW_ALLOWED_CLIENT_IDS` com os clientes permitidos antes de subir o Compose. Os defaults apontam para a identidade local prevista na arquitetura-alvo, ainda não fornecida neste Compose. Para demonstração local, use um emissor JWT de teste controlado externamente ao Compose e forneça um token válido em `TOKEN`; não há bypass de autenticação nem identidade provisória no código de produção.
+
+Exemplo executável nesta fase, após configurar o emissor e obter `TOKEN`:
 
 ```sh
 curl --fail-with-body --include http://127.0.0.1:8081/transactions \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Idempotency-Key: 607c30f2-1230-4149-8423-074104df242d' \
   --data '{"type":"CREDIT","amount":"100.00","occurredAt":"2026-10-21T12:00:00-03:00","description":"Venda"}'
 
 curl --fail-with-body http://127.0.0.1:8081/transactions/SEU_ID
 ```
 
-Use uma nova chave UUID por POST. O header preserva a forma do contrato, mas o replay idempotente e o commit atômico com Outbox ainda não existem. Autenticação também não está implementada nesta fase.
+Repetir o mesmo POST com a mesma chave e identidade retorna `201` com `Idempotent-Replayed: true` e o mesmo ID. Reutilizar a chave com outro comando retorna `409`. Cada primeira criação confirmada grava, em uma transação PostgreSQL, o lançamento, o registro de idempotência e uma mensagem Outbox em estado `PENDING`. O Outbox ainda não é publicado. Lançamentos criados antes da Fase 3 permanecem no banco sem uma identidade histórica fabricada.
 
 Para executar o teste de integração contra PostgreSQL real:
 
@@ -43,7 +46,7 @@ Ajuste a senha no comando se configurar `POSTGRES_PASSWORD`. O teste cria e remo
 
 Há dois serviços/bounded contexts, Transactions e Consolidation, com quatro deployables independentes: Transactions API, Transactions Worker/Outbox Publisher, Consolidation API e Consolidation Worker. API e Worker não são combinados no mesmo container. PostgreSQL e RabbitMQ completam a topologia mínima de seis workloads principais. A especificação detalhada abaixo prevê também infraestrutura e ferramentas auxiliares, inclusive ownership independente dos dados de cada contexto; esta seção não altera a decisão de deployment físico futuro.
 
-Os comandos e exemplos das seções seguintes dependem de capacidades ainda não implementadas nesta branch. RabbitMQ, Workers, Consolidation, Keycloak, observabilidade e ferramentas futuras não fazem parte do Compose executável da Fase 2.
+Os comandos e exemplos das seções seguintes dependem de capacidades ainda não implementadas nesta branch. RabbitMQ, Workers, Consolidation, Keycloak, observabilidade e ferramentas futuras não fazem parte do Compose executável da Fase 3.
 
 ## Pré-requisitos e composição
 

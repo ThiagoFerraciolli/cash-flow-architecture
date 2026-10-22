@@ -46,9 +46,10 @@ public sealed class TransactionTests
     public async Task Calculates_business_date_from_instant_in_sao_paulo(string occurredText, string dateText)
     {
         var repository = new FakeRepository();
-        var service = new TransactionService(repository, new FixedClock(DateTimeOffset.Parse("2026-10-23T00:00:00Z")),
+        var service = new TransactionService(repository, repository, new FixedClock(DateTimeOffset.Parse("2026-10-23T00:00:00Z")),
             TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"));
-        var value = await service.CreateAsync(TransactionType.Credit, 1.23m, null, DateTimeOffset.Parse(occurredText), TestContext.Current.CancellationToken);
+        var value = (await service.CreateAsync(TestIdentity, Guid.NewGuid(), TransactionType.Credit, 1.23m,
+            null, DateTimeOffset.Parse(occurredText), "correlation", TestContext.Current.CancellationToken)).Transaction!;
         Assert.Equal(DateOnly.Parse(dateText), value.BusinessDate);
         Assert.Equal(DateTimeOffset.Parse(occurredText).ToUniversalTime(), value.OccurredAt);
         Assert.Same(value, repository.Values.Single());
@@ -58,9 +59,9 @@ public sealed class TransactionTests
     public async Task Rejects_future_beyond_five_minutes()
     {
         var repository = new FakeRepository();
-        var service = new TransactionService(repository, new FixedClock(DateTimeOffset.Parse("2026-10-22T00:00:00Z")), TimeZoneInfo.Utc);
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.CreateAsync(TransactionType.Debit, 1m,
-            null, DateTimeOffset.Parse("2026-10-22T00:05:01Z"), TestContext.Current.CancellationToken));
+        var service = new TransactionService(repository, repository, new FixedClock(DateTimeOffset.Parse("2026-10-22T00:00:00Z")), TimeZoneInfo.Utc);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.CreateAsync(TestIdentity, Guid.NewGuid(),
+            TransactionType.Debit, 1m, null, DateTimeOffset.Parse("2026-10-22T00:05:01Z"), "correlation", TestContext.Current.CancellationToken));
         Assert.Empty(repository.Values);
     }
 
@@ -68,11 +69,13 @@ public sealed class TransactionTests
     public async Task Queries_by_id_date_type_and_cursor()
     {
         var repository = new FakeRepository();
-        var service = new TransactionService(repository, new FixedClock(DateTimeOffset.Parse("2026-10-23T00:00:00Z")),
+        var service = new TransactionService(repository, repository, new FixedClock(DateTimeOffset.Parse("2026-10-23T00:00:00Z")),
             TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"));
         var token = TestContext.Current.CancellationToken;
-        var first = await service.CreateAsync(TransactionType.Credit, 1m, null, DateTimeOffset.Parse("2026-10-21T15:00:00Z"), token);
-        var second = await service.CreateAsync(TransactionType.Debit, 2m, null, DateTimeOffset.Parse("2026-10-22T15:00:00Z"), token);
+        var first = (await service.CreateAsync(TestIdentity, Guid.NewGuid(), TransactionType.Credit, 1m,
+            null, DateTimeOffset.Parse("2026-10-21T15:00:00Z"), "correlation", token)).Transaction!;
+        var second = (await service.CreateAsync(TestIdentity, Guid.NewGuid(), TransactionType.Debit, 2m,
+            null, DateTimeOffset.Parse("2026-10-22T15:00:00Z"), "correlation", token)).Transaction!;
         Assert.Same(first, await service.GetAsync(first.Id, token));
         Assert.Null(await service.GetAsync(Guid.NewGuid(), token));
         var from = new DateOnly(2026, 10, 21);
@@ -87,15 +90,23 @@ public sealed class TransactionTests
         new(Guid.NewGuid(), Guid.NewGuid(), type, amount, description, DateTimeOffset.Parse("2026-10-22T00:00:00Z"),
             new DateOnly(2026, 10, 21), DateTimeOffset.Parse("2026-10-22T00:00:01Z"));
 
+    private static AuthenticatedClientIdentity TestIdentity => new("https://issuer.example", "test-client");
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private sealed class FakeRepository : ITransactionRepository
+    private sealed class FakeRepository : ITransactionRepository, ITransactionCreationStore
     {
         public List<FinancialTransaction> Values { get; } = [];
-        public Task InsertAsync(FinancialTransaction value, CancellationToken ct) { Values.Add(value); return Task.CompletedTask; }
+        public Task<CreateTransactionResult> CreateOrReplayAsync(AuthenticatedClientIdentity identity, Guid key,
+            string requestHash, int canonicalVersion, FinancialTransaction candidate, string correlationId,
+            CancellationToken ct)
+        {
+            Values.Add(candidate);
+            return Task.FromResult(new CreateTransactionResult(CreateTransactionStatus.Created, candidate));
+        }
         public Task<FinancialTransaction?> GetAsync(Guid id, CancellationToken ct) => Task.FromResult(Values.SingleOrDefault(x => x.Id == id));
         public Task<IReadOnlyList<FinancialTransaction>> ListAsync(DateOnly from, DateOnly to, TransactionType? type,
             DateOnly? afterDate, Guid? afterId, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<FinancialTransaction>>(

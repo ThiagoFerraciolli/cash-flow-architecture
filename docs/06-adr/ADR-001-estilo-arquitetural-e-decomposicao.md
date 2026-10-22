@@ -1,52 +1,42 @@
 # ADR-001 — Separação das capacidades de Lançamentos e Consolidação
 
-- **Status:** PROPOSTO — aguardando validação
+- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
 - **Drivers:** RNF-001, RNF-013, ASR-001, ASR-008
 
 ## Contexto
 
-O desafio exige que o serviço de controle de lançamentos continue disponível quando o sistema de consolidado diário estiver indisponível. As duas capacidades também apresentam perfis distintos: lançamentos representam fatos financeiros primários; consolidação é uma visão derivada. O enunciado informa ainda um cenário de 50 req/s para o serviço de consolidação, sem especificar qual operação recebe essa carga.
-
-Precisamos decidir a unidade de execução/deployment sem assumir que “microsserviços” são automaticamente a melhor resposta.
+O desafio exige que Lançamentos continue disponível quando a Consolidação diária estiver indisponível. Lançamentos representa fatos financeiros primários; Consolidação é projeção derivada. Os perfis de carga e falha também são distintos.
 
 ## Alternativas avaliadas
 
-### A. Monólito único, mesmo processo e deployment
+### Monólito/processo único
+Menor complexidade, porém compartilha domínio de falha e escala, enfraquecendo o RNF explícito de independência.
 
-**Vantagens:** menor complexidade operacional, desenvolvimento e execução simples.
+### Monólito modular com um deployment
+Boa separação lógica, mas ainda compartilha ciclo de vida/processo e não demonstra isolamento operacional suficiente para o case.
 
-**Desvantagens:** aumenta o risco de acoplamento de falha e deployment entre lançamento e consolidação; dificulta demonstrar e garantir o RNF-001; scaling é conjunto mesmo com perfis de carga diferentes.
+### Dois serviços independentes
+Isolamento operacional e escala independente, ao custo de integração distribuída, consistência eventual e observabilidade ponta a ponta.
 
-### B. Monólito modular com um deployment
+## Decisão
 
-**Vantagens:** boa separação lógica, baixo custo operacional, fronteiras internas explícitas.
+Adotar **2 serviços de negócio**: `Transactions` e `Consolidation`.
 
-**Desvantagens:** apesar do isolamento lógico, lançamento e consolidação continuam compartilhando ciclo de vida do processo/deployment. Uma falha de processo ou manutenção pode afetar as duas capacidades, enfraquecendo a demonstração do RNF-001.
+Cada serviço possui **2 processos executáveis** para separar caminho HTTP de processamento assíncrono:
+- Transactions API + Transactions Worker/Outbox Publisher;
+- Consolidation API + Consolidation Worker.
 
-### C. Dois serviços/deployables independentes, alinhados aos bounded contexts
-
-**Vantagens:** isolamento operacional; falha e scaling independentes; aderência direta ao RNF-001; permite evolução separada sem exigir decomposição excessiva.
-
-**Desvantagens:** introduz integração distribuída, consistência eventual, observabilidade ponta a ponta e maior complexidade de testes/operação.
-
-## Decisão proposta
-
-Adotar **dois serviços independentes**, um para `Transactions` e outro para `Daily Consolidation`, cada um alinhado a uma capacidade/bounded context.
-
-Esta solução usa arquitetura de serviços/microsserviços de granularidade grossa: apenas duas unidades justificadas pelo requisito de isolamento. Não serão criados serviços adicionais para autenticação, relatórios, eventos ou outras responsabilidades sem driver arquitetural.
-
-A decisão não depende do cenário hipotético de transição. O cenário de transição apenas demonstra como uma solução monolítica hipotética poderia evoluir para a arquitetura-alvo; a justificativa primária para os dois serviços continua sendo o RNF explícito de independência entre Lançamentos e Consolidação.
+Logo, a solução possui **2 serviços / 4 processos**, e não quatro microsserviços. API e Worker do mesmo serviço compartilham bounded context e ownership de dados, mas podem escalar e ser implantados independentemente.
 
 ## Consequências
 
-- consolidação não participa do caminho síncrono de confirmação do lançamento;
-- comunicação entre os contexts precisa tolerar indisponibilidade temporária;
-- consistência entre lançamento e consolidado será eventual;
-- cada serviço terá health e ciclo de deployment próprios;
-- persistência terá ownership definido por serviço;
-- integração, idempotência e observabilidade tornam-se decisões arquiteturais relevantes;
-- o ambiente local deve permitir interromper a consolidação mantendo lançamentos operacionais.
+- Consolidação não participa do caminho síncrono do lançamento;
+- integração é assíncrona e eventualmente consistente;
+- ownership de persistência é por serviço;
+- APIs e workers possuem health/scale independentes;
+- o ambiente deve permitir parar toda a Consolidação e manter Lançamentos operando;
+- não são criados serviços adicionais sem driver.
 
-## Critério de validação
+## Validação posterior
 
-O ADR será considerado validado quando o ambiente executável demonstrar que o serviço de consolidação pode ser interrompido enquanto novos lançamentos continuam sendo confirmados e persistidos.
+`ACEITO` significa que a decisão documental foi escolhida para o desafio. A garantia comportamental só muda para **VALIDADA POR EVIDÊNCIA** quando testes executados demonstrarem independência, recuperação e convergência.

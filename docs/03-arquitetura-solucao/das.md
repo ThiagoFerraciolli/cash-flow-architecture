@@ -31,13 +31,13 @@ A integração é pelo menos uma vez, sem ordenação global necessária. Soma d
 
 ## Recuperação e dados
 
-Lançamentos são fonte de verdade; eventId permanece no fato mesmo após limpeza da Outbox. Identidades HTTP e da geração ativa não expiram. Falhas persistentes são isoladas, sem descarte. Reconciliação usa snapshot após pausa controlada do consumo; reconstrução cria geração nova, valida e troca atomicamente. Escrita financeira continua durante manutenção. [Procedimento normativo](../07-infraestrutura/recuperacao-e-reconciliacao.md).
+Lançamentos são fonte de verdade; eventId permanece no fato mesmo após limpeza da Outbox. Identidades HTTP e da geração ativa não expiram. Falhas persistentes são isoladas, sem descarte. Reconciliação usa snapshot após pausa controlada do consumo; reconstrução cria geração nova, valida e troca atomicamente. Escrita financeira continua durante manutenção da projeção. Restore da própria fonte bloqueia escrita e isola a fila anterior até reconstrução completa. [Procedimento normativo](../07-infraestrutura/recuperacao-e-reconciliacao.md).
 
 ## Ambientes e segurança
 
 Local: Docker Compose, bancos separados, RabbitMQ e Keycloak. AWS: ECS/Fargate em duas zonas, RDS por contexto Multi-AZ, SQS/DLQ, Cognito, ALB/WAF e serviços de operação. O domínio permanece o mesmo; adaptadores e ensaios diferem por broker. [ADR-010](../06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md).
 
-APIs autenticam e autorizam; TLS na AWS, IAM mínimo, secrets externos, criptografia, logs sanitizados e auditoria de cliente técnico. [Visão de segurança](../04-visoes/seguranca-resiliencia-observabilidade.md). Observabilidade correlaciona API, Outbox, mensagem e consumo; mede atraso e falhas sem interpretar lastUpdatedAt como completude.
+APIs autenticam e autorizam conforme o [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md); TLS na AWS, IAM mínimo, secrets externos, criptografia, logs sanitizados e auditoria de cliente técnico. [Visão de segurança](../04-visoes/seguranca-resiliencia-observabilidade.md). Observabilidade correlaciona API, Outbox, mensagem e consumo; mede atraso e falhas sem interpretar lastUpdatedAt como completude.
 
 ## Capacidade, disponibilidade e custo
 
@@ -54,6 +54,7 @@ Metas internas e configurações estão nos [parâmetros operacionais](../07-inf
 | Evento e versionamento | ADR-008 |
 | Falhas e recuperação | ADR-009; procedimento operacional |
 | RabbitMQ/SQS | ADR-010 |
+| Autenticação e autorização | ADR-011 |
 | API e software | Contratos HTTP; SDD |
 
 A [matriz de conformidade](../01-requisitos/matriz-conformidade.md) separa cobertura documental de evidências futuras. Sem legado informado, transição de legado não é necessária; o caminho local→AWS está definido no plano de implantação.

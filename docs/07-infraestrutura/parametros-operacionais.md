@@ -25,11 +25,11 @@
 | Consulta de Outbox | A cada 1 s; lote máximo 20 |
 | Reserva de publicação | 60 s por lote; renovação a cada 20 s; envio concorrente máximo 4 |
 | Timeout de publicação | 10 s por tentativa |
-| Retentativa Outbox | Backoff exponencial com jitter, base 1 s e teto 60 s; 20 falhas levam a estado suspenso e alerta |
+| Retentativa Outbox | Sistêmica: circuit breaker, base 1 s e teto 60 s, sem suspender item; payload inválido: suspensão imediata; falha isolada indeterminada: suspensão após 20 tentativas |
 | Limpeza Outbox publicada | Após 30 dias; nunca remover pendente ou suspensa |
 | Consumidor | Até 8 operações concorrentes por processo; transação de banco limitada a 10 s |
 | SQS | Long polling 20 s; lote até 10; visibilidade 60 s; extensão a cada 20 s se necessária |
-| SQS redrive | `maxReceiveCount = 5`; retenção principal 7 dias e DLQ 14 dias |
+| SQS redrive | `maxReceiveCount = 8`; retenção principal 7 dias e DLQ 14 dias; indisponibilidade compartilhada pausa polling e estende mensagens em curso |
 | RabbitMQ | Mensagens persistentes, filas quorum duráveis, prefetch 16; confirmação manual |
 | RabbitMQ retry | Até 5 tentativas de processamento; espera de 5 s, 15 s, 30 s e 60 s entre tentativas |
 | RabbitMQ limite nativo | delivery-limit 100 na principal, DLX seguro para DLQ; distinto das 5 tentativas da aplicação |
@@ -37,7 +37,8 @@
 | RabbitMQ retenção | Sem TTL de negócio na fila principal/DLQ; monitorar disco e profundidade; retry com TTL técnico |
 | Reprocessamento operacional | Iniciar a 10 mensagens/s; pausar se falha > 1% em 1 min ou idade da fila crescer por 5 min |
 | Reconciliação | Diária às 03:00 no fuso de negócio e após incidente, restore ou reconstrução |
-| Reconstrução | Toda a projeção; consumo pausado por controle persistente; escrita de Lançamentos continua |
+| Reconstrução de Consolidação | Toda a projeção; consumo pausado por controle persistente; escrita de Lançamentos continua |
+| Restore de Lançamentos | Escrita e publicação pausadas; fila antiga isolada; destino físico novo; Consolidação reconstruída antes da reabertura |
 
 Timeout de visibilidade e backoff RabbitMQ são mecanismos diferentes. O domínio não depende de igualdade de tempos ou de contadores entre brokers. Tamanho de mensagem da aplicação limitado a 16 KiB em ambos.
 
@@ -61,5 +62,6 @@ Timeout de visibilidade e backoff RabbitMQ são mecanismos diferentes. O domíni
 | HTTP | Erros > 1% por 5 min ou ausência de instâncias saudáveis geram alerta |
 | Logs | Aplicação 30 dias; auditoria operacional 90 dias; sem payload financeiro sensível |
 | Backups AWS | Automáticos/PITR 35 dias; snapshot antes de migração destrutiva; restore mensal em homologação |
+| Revisão de crescimento | Abrir com 10 milhões de fatos, reconciliação > 5 min por 3 dias, restore/rebuild > 75% do RTO, armazenamento > 70% ou espaço sem duas gerações + snapshot + 20% de margem |
 
 Os ensaios usam dados sintéticos. A independência é garantida pelo desenho no caminho de escrita, mas não implica capacidade infinita: crescimento de Outbox, armazenamento e conexões devem ser monitorados. Não bloquear a API apenas porque Consolidação ou broker estão indisponíveis; rejeitar com 503 quando a própria persistência não puder confirmar com segurança.

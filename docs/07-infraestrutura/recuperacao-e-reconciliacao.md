@@ -4,7 +4,7 @@
 
 ## Autoridade, segurança e registro
 
-A ferramenta administrativa futura será executada fora das APIs públicas por operador autenticado. Usa leitura da base de Lançamentos e escrita restrita na base de Consolidação; credenciais próprias, temporárias na AWS, sem conceder acesso cruzado aos serviços de negócio. Cada execução registra runId, operador, motivo, horários, snapshot, gerações, contagens, somas, resultado e erros sanitizados. Produção exige janela comunicada e monitoração ativa; não exige interromper o registro de lançamentos.
+A ferramenta administrativa futura será executada fora das APIs públicas por operador autenticado. Usa leitura da base de Lançamentos e escrita restrita na base de Consolidação; credenciais próprias, temporárias na AWS, sem conceder acesso cruzado aos serviços de negócio. Cada execução registra runId, operador, motivo, horários, snapshot, gerações, contagens, somas, resultado e erros sanitizados. Reconciliação e rebuild da projeção não interrompem o registro de lançamentos. Restore da própria fonte é exceção: exige indisponibilidade controlada de escrita para definir um corte seguro.
 
 ## Controle persistente
 
@@ -43,8 +43,23 @@ Inspecionar metadados sem expor payload em logs; corrigir causa e validar contra
 
 SQS possui retenção finita: após expiração, publicação marcada não garante consumo. Alarmes e reconciliação diária antecipam a situação; reconstrução cobre dados ausentes sem exigir evento retido. RabbitMQ local também pode perder dados por remoção do volume; a fonte financeira é a recuperação, desde que seu volume esteja preservado.
 
-## Restore de bancos
+## Restore da fonte de Lançamentos
 
-RDS Multi-AZ trata disponibilidade; PITR e snapshots tratam recuperação. Restaurar primeiro Lançamentos em instância isolada, validar ponto restaurável, constraints e contagens, registrar RPO/RTO observados e trocar endpoint/segredo após verificação. Suspender consumidores enquanto a fonte restaurada é verificada. Sempre reconstruir Consolidação a partir dessa fonte para evitar projeção com fatos que o restore não recuperou. A política de idempotência acompanha os fatos restaurados; dados posteriores ao ponto recuperado podem ter sido perdidos e devem ser declarados no incidente.
+RDS Multi-AZ trata disponibilidade; PITR e snapshots tratam recuperação. Restore da fonte não reutiliza automaticamente a projeção nem a fila existentes, pois elas podem conter fatos posteriores ao ponto recuperado. O runbook obrigatório é:
+
+1. Abrir incidente e registrar `runId`, motivo, último ponto restaurável e RPO/RTO estimados. No ALB, bloquear `POST /transactions` com 503 e `Retry-After`; interromper API de escrita e publicador, aguardar transações e leases em curso e revogar conexão de escrita da credencial antiga. Clientes devem repetir o mesmo comando com a mesma chave somente após a reabertura.
+2. Pausar consumidores antes de qualquer troca. Isolar fila principal, retries e DLQ da geração antiga: remover acesso dos Workers e proibir redrive. Preservar métricas e mensagens como evidência até o encerramento. Mensagem antiga nunca é aplicada automaticamente à fonte restaurada.
+3. Restaurar Lançamentos em instância isolada para o ponto escolhido. Validar migrations, constraints, chaves de idempotência, fatos, Outbox e contagens; registrar o instante efetivamente recuperado. Não copiar linhas seletivas da instância antiga sem procedimento corretivo específico e auditado.
+4. Criar geração física nova do transporte conforme ADR-010 e configurar publicador e consumidor com o destino novo. Manter ambos parados. Restaurar ou recriar Consolidação e executar reconstrução integral a partir de um único snapshot da fonte restaurada, incluindo identidades e totais.
+5. Validar hashes, somas, contagens e permissões. Trocar endpoint/segredo de Lançamentos; iniciar consumidor no destino novo, iniciar publicador e confirmar que a Outbox pendente publica com as mesmas identidades. Duplicatas de fatos incluídos no snapshot são no-op na geração ativa.
+6. Reabrir a API de escrita somente após readiness, smoke test autenticado e reconciliação válida. Monitorar Outbox, fila nova, duplicatas e divergência. Encerrar o incidente com RPO/RTO observados e decisão auditada sobre retenção e posterior remoção da geração antiga.
+
+Fatos confirmados depois do ponto restaurado podem ter sido perdidos dentro do RPO. Identificá-los por trilhas externas e pela instância antiga, quando íntegra, mas não reinseri-los automaticamente: cada recuperação exige validação de negócio e preservação da chave de idempotência. A fila antiga não é fonte de verdade e não corrige essa perda. No ambiente local, o ensaio usa novo conjunto de filas ou virtual host RabbitMQ e o mesmo bloqueio de escrita.
+
+Restore exclusivo de Consolidação mantém Lançamentos e publicação ativos: restaurar em instância isolada, ativar manutenção, reconstruir uma geração nova a partir da fonte, validar e trocar conforme o procedimento de rebuild. Não promover um snapshot antigo da projeção como estado atual.
 
 Ensaio mensal de restore e trimestral de falha de zona. Falha regional não tem DR automático nesta referência; recuperação inter-região é evolução condicionada a novo objetivo e orçamento.
+
+## Gatilhos de evolução por crescimento
+
+Abrir revisão arquitetural quando qualquer condição ocorrer: reconciliação diária acima de 5 minutos em três execuções consecutivas; restore ou rebuild acima de 75% do RTO; projeção, identidades ou Outbox acima de 70% do armazenamento; espaço livre insuficiente para snapshot, duas gerações e 20% de margem; mais de 10 milhões de fatos; ou projeção de violação do RTO nos 90 dias seguintes. A revisão deve escolher, com medição, entre particionamento, snapshot incremental verificável, arquivamento que preserve identidades, aumento de classe/armazenamento ou rebuild paralelo. Até aprovação de nova ADR, o procedimento integral continua normativo e a capacidade deve ser ampliada antes de ultrapassar o limite.

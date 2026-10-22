@@ -15,7 +15,7 @@
 | RNF-006 | 004 | ADR-005/008; identidades financeiras sem expiração | T02/T05/T08/T12/T19 |
 | RNF-007 | 005/010 | ADR-009; DLQ e snapshot/geração | T09–T12/T17 |
 | RNF-008 | 006/008 | ADR-006; autoscaling/UPSERT/reserva | T04/T05/T15/T16 |
-| RNF-009/012 | 007 | Segurança; IAM/JWT/TLS/secrets | T13/T18 |
+| RNF-009/012 | 007 | ADR-011; segurança; IAM/JWT/TLS/secrets | T13/T18 |
 | RNF-010/011 | 009 | Observabilidade/auditoria e parâmetros | T01/T10/T11/T14 |
 | RNF-014 | 008 | SDD/componentes; ADR-010/adaptadores | T19/T20 |
 | Execução local dos PDFs | 001/008 | Guia Compose/RabbitMQ/Keycloak | T18 e suíte local |
@@ -24,6 +24,6 @@
 
 ## Fontes principais
 
-Regras de API: contratos-http. Evento: ADR-008. Idempotência: ADR-005. Operação de mensageria: ADR-010. Reserva Outbox: ADR-004. Recuperação: recuperacao-e-reconciliacao. Defaults/metas: parametros-operacionais. As visões explicativas não redefinem esses contratos.
+Regras de API: contratos-http. Evento: ADR-008. Idempotência: ADR-005. Operação de mensageria: ADR-010. Autenticação/autorização: ADR-011. Reserva Outbox: ADR-004. Recuperação: recuperacao-e-reconciliacao. Defaults/metas: parametros-operacionais. As visões explicativas não redefinem esses contratos.
 
 Relatórios futuros devem registrar commit, ambiente e resultado em docs/08-testes. Nenhuma execução é declarada validada nesta etapa documental.

@@ -12,22 +12,22 @@
 | T04 | Publicação concorrente | Dois publicadores, lease vencida e token antigo; sem perda e sem atualização por proprietário antigo |
 | T05 | Consumo concorrente | Eventos distintos na mesma data somam exatamente; duplicata e versões do mesmo fato não duplicam; conflito de conteúdo gera DLQ |
 | T06 | Independência | Parar API, Worker e banco de Consolidação; registrar 1.000 fatos válidos a 10/s com sucesso e contagem exata; retomar e convergir |
-| T07 | Broker indisponível | Novos fatos confirmam; Outbox cresce; retry/suspensão observável; retorno do broker e liberação operacional de itens suspensos entregam tudo |
+| T07 | Broker indisponível | Novos fatos confirmam; Outbox cresce; circuit breaker pausa envio sem suspender itens válidos; retorno do broker entrega tudo; payload inválido suspende somente o próprio item |
 | T08 | Crash windows | Cair após envio antes de published_at e após commit antes de ack/delete; recuperar sem perda/duplicação |
-| T09 | Retry e DLQ | Transitório recupera; permanente isola; redrive preserva fato; destino de retry indisponível não perde mensagem |
+| T09 | Retry e DLQ | Falha sistêmica pausa consumo sem gastar tentativas de aplicação; transitória isolada recupera; permanente isola; redrive preserva fato; destino de retry indisponível não perde mensagem |
 | T10 | Reconciliação | Snapshot consistente diferencia atraso e corrupção; não acusa fato posterior ao snapshot como divergência |
 | T11 | Rebuild | Consumo pausado antes do snapshot, escrita continua; mensagens antes/depois do corte; crash em cada etapa; geração trocada atomicamente e somas exatas |
 | T12 | Retenção e identidade | Simular mensagem expirada e Outbox publicada removida; reconstruir pelo fato/eventId persistido; deduplicação ativa nunca é limpa por prazo |
-| T13 | Segurança | 401/403, emissor/assinatura/cliente/scopes inválidos, rotação, limite de corpo e taxa; nenhum segredo/payload sensível em logs |
+| T13 | Segurança | Keycloak e Cognito: 401/403, access token, emissor/assinatura/cliente/scopes/audience aplicável, rotação JWKS/segredo, limite de corpo e taxa; nenhum segredo/payload sensível em logs |
 | T14 | Observabilidade | Correlação e sinais permitem diagnosticar os cenários anteriores; manutenção não vira falsa falha financeira |
 | T15 | Carga de consulta | 50 req/s, perda/falha ≤ 5%, resposta válida e metas internas de latência |
 | T16 | Recuperação de backlog | 10.000 fatos acumulados convergem em até 10 min com escrita contínua 10/s; verificar conjuntos e valores |
-| T17 | Restore e disponibilidade AWS | Restore/PITR, RPO/RTO observados, falha de zona, readiness e reconexão |
+| T17 | Restore e disponibilidade AWS | Restore/PITR de Lançamentos bloqueia escrita, isola fila antiga, cria destino novo, reconstrói a projeção e impede evento antigo; medir RPO/RTO, falha de zona, readiness e reconexão |
 | T18 | Inicialização limpa | Terceiro executa guia local sem AWS; migrations e configuração determinísticas |
 | T19 | Contratos | Evento v1, campos opcionais, versão desconhecida, decimal textual, mudança de geração na paginação |
 | T20 | Isolamento de camadas | Domain/Application sem SDK de broker/framework de persistência; adaptadores separados |
 
-T01 inclui centavos, limite individual, overflow de agregado, timezone na virada do dia, data retroativa e futuro além da tolerância. T02 inclui requisições concorrentes e releitura após conflito. T11 valida também que rollback para geração antiga após retomada é bloqueado. API com projeção vazia retorna zeros e completeness UNKNOWN; banco indisponível retorna 503, nunca zeros.
+T01 inclui centavos, limite individual, overflow de agregado, timezone na virada do dia, data retroativa e futuro além da tolerância. T02 inclui requisições concorrentes e releitura após conflito. T11 valida também que rollback para geração antiga após retomada é bloqueado. T17 inclui mensagem anterior e posterior ao ponto recuperado, Outbox pendente, retry do cliente com a mesma chave e proibição de redrive entre gerações. API com projeção vazia retorna zeros e completeness UNKNOWN; banco indisponível retorna 503, nunca zeros.
 
 ## Carga reproduzível
 

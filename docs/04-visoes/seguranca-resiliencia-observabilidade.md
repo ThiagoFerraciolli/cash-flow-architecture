@@ -1,14 +1,10 @@
 # Visões de segurança, resiliência e observabilidade
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Controles especificados para implementação e verificação.
+**Estado: DOCUMENTAÇÃO APROVADA.** Controles especificados para implementação e verificação. A decisão normativa de identidade está no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md).
 
 ## Segurança de consumo
 
-As APIs validam JWT; o ALB termina TLS e encaminha tráfego, sem assumir validação de bearer token. Local: Keycloak, realm cashflow. AWS: Cognito User Pool com resource server `cashflow` e clientes técnicos OAuth2 client credentials. Permissões lógicas `transactions.write`, `transactions.read`, `consolidations.read`; no Cognito, scopes `cashflow/transactions.write`, `cashflow/transactions.read`, `cashflow/consolidations.read`. O adaptador de autorização normaliza esses valores. São escolhas técnicas aprovadas, não perfis de negócio atribuídos ao enunciado.
-
-Validar assinatura com algoritmo permitido RS256, emissor exato, expiração/not-before com tolerância de relógio de 60 s e token de acesso, nunca aceitar ID token. No Keycloak validar audience cashflow-api e client_id emitido pelo mapper configurado no bootstrap local. No Cognito validar `token_use=access`, client_id permitido e scopes do resource server; se o token trouxer aud por configuração de recurso, validar o valor configurado. Não exigir cegamente claim aud ausente em fluxos Cognito; não aceitar token de outro pool/cliente. Tokens duram 15 min; cliente renova antes de expirar. JWKS em cache com renovação controlada e tratamento de rotação; chave desconhecida sem resolução confiável falha fechada.
-
-Criação exige escrita; consultas exigem leitura correspondente. Falta de autenticação retorna 401 e de permissão 403. Idempotência usa issuer/client_id validados. Este escopo é de cliente técnico e comerciante único; não oferece isolamento multi-tenant.
+As APIs validam JWT; o ALB termina TLS e encaminha tráfego, sem assumir validação de bearer token. Keycloak atende o ambiente local e Cognito atende a AWS, ambos com OAuth 2.0 client credentials. Criação exige escrita e consultas exigem a permissão de leitura correspondente. Falta de autenticação retorna 401 e de permissão retorna 403. Claims, scopes, tempo de token, rotação e composição da identidade auditável são definidos exclusivamente no ADR-011. Este escopo é de cliente técnico e comerciante único; não oferece isolamento multi-tenant.
 
 ## Fronteiras e proteção
 
@@ -36,14 +32,14 @@ Secrets Manager para senhas e OAuth secrets, rotação coordenada com pools de c
 | Falha | Resposta |
 |---|---|
 | Consolidação API/Worker/banco | Lançamentos continua; transporte acumula; recuperação por backlog ou rebuild |
-| Broker | Outbox preserva trabalho; retry/suspensão observável; API não depende do envio |
+| Broker | Outbox preserva trabalho; circuit breaker pausa falha sistêmica sem suspender itens válidos; API não depende do envio |
 | Publicador cai após envio | Republicação com identidade estável |
 | Consumidor cai após commit | Reentrega sem efeito adicional |
 | Banco de Lançamentos | Sem confirmação; erro retentável com chave original |
 | Mensagem inválida | Isolamento em DLQ, investigação; sem descarte silencioso |
 | Perda/expiração do transporte | Reconciliação e reconstrução da fonte |
 | Falha de zona AWS | Réplicas ECS e RDS Multi-AZ; medir failover |
-| Corrupção/restore | PITR e reconstrução coordenada, RPO/RTO medidos |
+| Corrupção/restore | Bloqueio de escrita da fonte, fila antiga isolada, PITR e reconstrução coordenada; RPO/RTO medidos |
 
 Backlog não é ilimitado. Alarmes de armazenamento, reservas e conexões previnem falhas indiretas. Credenciais, ALB, região e infraestrutura compartilhada continuam domínios de falha comuns; a independência exigida não equivale a imunidade a toda falha da AWS.
 

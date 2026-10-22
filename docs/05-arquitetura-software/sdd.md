@@ -56,7 +56,7 @@ BusinessDate é calculado em Lançamentos pelo fuso aprovado. Entidade imutável
 
 ## Segurança e operação
 
-JWT obrigatório com validação na API, permissões técnicas e issuer/audience definidos por ambiente. Keycloak local e Cognito AWS. Secrets fora do código, processos sem root, limites de entrada, rate limiting, TLS na AWS. Detalhes na [visão de segurança](../04-visoes/seguranca-resiliencia-observabilidade.md).
+JWT obrigatório com validação na API, permissões técnicas e claims definidos por provedor no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md). Keycloak local e Cognito AWS. Secrets fora do código, processos sem root, limites de entrada, rate limiting, TLS na AWS. Controles complementares na [visão de segurança](../04-visoes/seguranca-resiliencia-observabilidade.md).
 
 Liveness verifica processo; readiness das APIs verifica seu próprio banco/schema/configuração, sem consultar o outro serviço ou broker. Workers expõem sinais privados de dependências e manutenção. Shutdown interrompe recebimentos, permite até 30 s para trabalho em andamento e deixa entregas não confirmadas voltarem. Reservas Outbox expiram com segurança.
 

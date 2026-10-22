@@ -1,6 +1,6 @@
 # Visão de integração
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Contrato HTTP em [contratos-http](../05-arquitetura-software/contratos-http.md); payload de evento exclusivamente no [ADR-008](../06-adr/adr-008-contrato-e-versionamento-de-eventos.md); semântica por broker no [ADR-010](../06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md).
+**Estado: DOCUMENTAÇÃO APROVADA.** Contrato HTTP em [contratos-http](../05-arquitetura-software/contratos-http.md); identidade no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md); payload de evento exclusivamente no [ADR-008](../06-adr/adr-008-contrato-e-versionamento-de-eventos.md); semântica por broker no [ADR-010](../06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md).
 
 ## Fronteiras
 

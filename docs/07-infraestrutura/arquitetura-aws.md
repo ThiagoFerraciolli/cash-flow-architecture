@@ -10,7 +10,7 @@ Quatro ECS Services Fargate Linux x86, um por processo. Cada serviço inicia com
 
 Dois RDS PostgreSQL 17 separados, cada um Multi-AZ com standby, classe inicial db.t4g.small e 100 GiB gp3 por banco. CPU credit de instância burstable é risco monitorado; trocar classe após medição se carga sustentada exigir. Backups/PITR 35 dias, criptografia, proteção contra exclusão e parâmetros de conexão TLS. Instância por contexto evita falha/saturação causada pela Consolidação no banco de Lançamentos.
 
-SQS Standard principal com 7 dias de retenção e DLQ com 14 dias; SSE-KMS, políticas por papel, long polling e timeout conforme tabela normativa. Cognito para clientes técnicos, ALB/ACM para HTTPS, WAF, ECR, Secrets Manager, CloudWatch e OpenTelemetry com destino AWS X-Ray.
+SQS Standard principal com 7 dias de retenção e DLQ com 14 dias; SSE-KMS, políticas por papel, long polling e timeout conforme tabela normativa. Os nomes são lógicos e a infraestrutura permite criar uma geração física nova de fila/DLQ em restore da fonte. Cognito para clientes técnicos conforme ADR-011, ALB/ACM para HTTPS, WAF, ECR, Secrets Manager, CloudWatch e OpenTelemetry com destino AWS X-Ray.
 
 ```mermaid
 flowchart TB
@@ -38,7 +38,7 @@ flowchart TB
 
 Security Group do ALB aceita 443 externo; tasks aceitam porta HTTPS apenas do ALB; RDS aceita 5432 apenas dos papéis de rede de seu contexto e ferramenta autorizada. Workers sem entrada pública. Administração por task eventual/SSM autorizada, sem SSH público. HTTPS nas tasks usa certificado interno por ambiente, armazenado no Secrets Manager, renovado antes do vencimento por deployment; sem chave privada na imagem. O certificado público do ALB é gerenciado pelo ACM. Restringir egress por destinos/portas compatíveis com serviços utilizados e auditar via Flow Logs; NAT não é firewall de aplicação.
 
-Task Role por processo; Execution Role separada; permissões KMS/SQS/ECR/logs/secrets conforme [segurança](../04-visoes/seguranca-resiliencia-observabilidade.md). Não usar fila pública ou credenciais AWS em arquivos. Health do ALB direcionado à readiness privada; APIs de Lançamentos não verificam fila/Consolidação para ficar prontas.
+Task Role por processo; Execution Role separada; permissões KMS/SQS/ECR/logs/secrets conforme [segurança](../04-visoes/seguranca-resiliencia-observabilidade.md). Identidade de clientes segue o [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md). Não usar fila pública ou credenciais AWS em arquivos. Health do ALB direcionado à readiness privada; APIs de Lançamentos não verificam fila/Consolidação para ficar prontas.
 
 ## Escala e capacidade
 
@@ -48,7 +48,7 @@ Limitar pool de cada processo a 5 conexões. Por contexto, os máximos de 6 APIs
 
 ## Alta disponibilidade e recuperação
 
-Duas tasks por processo e Multi-AZ são decisões aprovadas da referência de produção. Objetivos internos e ensaios estão nos [parâmetros](parametros-operacionais.md). Failover de zona não substitui PITR; Multi-AZ não impede erro lógico. Restore/rebuild segue [procedimento](recuperacao-e-reconciliacao.md). DR automático entre regiões não está no escopo; risco regional é declarado e não se promete RPO zero.
+Duas tasks por processo e Multi-AZ são decisões aprovadas da referência de produção. Objetivos internos e ensaios estão nos [parâmetros](parametros-operacionais.md). Failover de zona não substitui PITR; Multi-AZ não impede erro lógico. Restore da fonte bloqueia escrita, isola a fila anterior, cria fila/DLQ novas e reconstrói a projeção conforme o [procedimento](recuperacao-e-reconciliacao.md). DR automático entre regiões não está no escopo; risco regional é declarado e não se promete RPO zero.
 
 ## Passagem do local para AWS
 

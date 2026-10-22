@@ -8,11 +8,14 @@
 | Execução local indefinida | Compose especificado com RabbitMQ, dois PostgreSQL e Keycloak; portas, bootstrap e comandos futuros | execucao-local; ADR-010 |
 | Limpeza permite dupla contabilização | Identidade financeira por geração sem expiração ativa; idempotência HTTP retida com fato | ADR-005; visão de dados |
 | Rebuild sem algoritmo seguro | Pausa persistente antes do snapshot, geração nova com totais/identidades, validação e troca atômica | recuperação; ADR-009; fluxos |
+| Restore da fonte permite mensagem incompatível | Bloqueio de escrita, isolamento da fila anterior, destino físico novo e rebuild antes da reabertura | recuperação; ADR-009/010; T17 |
 | Reconciliação com cortes diferentes | Snapshot da origem após pausa; comparação de conjuntos e integridade interna; atraso separado de corrupção | recuperação; T10 |
 | Zero confundido com ausência de movimento | API declara consistência eventual e completude desconhecida, inclusive com zeros | contratos-http; RF-005 |
 | Expiração de transporte | Retenções/alertas definidos; eventId persistido no fato; recuperação sem depender da Outbox/fila | parâmetros; ADR-008/009; T12 |
 | Decisões técnicas adiadas | Valores, limites, metas internas e topologia adotados como escolhas aprovadas | parâmetros; premissas; AWS |
-| Segurança genérica | JWT nas APIs, Keycloak/Cognito, permissões, IAM/KMS/TLS, limites e auditoria | segurança; contratos |
+| Segurança genérica | JWT nas APIs, Keycloak/Cognito, claims por provedor, permissões, IAM/KMS/TLS, limites e auditoria | ADR-011; segurança; contratos |
+| Indisponibilidade suspende itens válidos | Circuit breaker para falha sistêmica e suspensão apenas por falha atribuível ou isolada persistente | ADR-004/009/010; T07/T09 |
+| Crescimento sem limiar de revisão | Gatilhos por tempo, volume, armazenamento, margem de rebuild e proximidade do RTO | parâmetros; recuperação |
 | SKIP LOCKED incompleto | Reserva persistente com prazo/token, transação curta e atualização condicionada | ADR-004; T04 |
 | Carga pode emitir menos de 50/s | Executor de chegada constante, dropped_iterations=0, contagem esperada e validação semântica | estratégia de testes T15 |
 | Custos pouco reproduzíveis | Quantidades, fórmulas, distinção tarifa/hipótese, NAT, IPv4, identidade e contingência | estimativa-custos |
@@ -29,6 +32,6 @@ A etapa executável deverá cumprir os critérios dos PDFs antes de declarar a e
 
 ## Verificações realizadas nesta revisão
 
-Revisados 38 arquivos Markdown (31 existentes e 7 novos). Verificados 69 links internos, parseados 3 exemplos JSON e validada a sintaxe dos 2 blocos de comandos com bash -n, sem executá-los. Inspeção estrutural dos 14 diagramas Mermaid e conferência transversal dos contratos, parâmetros e fontes normativas. git diff --check sem erros. Nenhum arquivo de implementação foi criado.
+Revisados 39 arquivos Markdown. Verificados 80 links internos, parseados 3 exemplos JSON e validada a sintaxe dos 2 blocos de comandos com bash -n, sem executá-los. Inspeção estrutural dos 14 diagramas Mermaid e conferência transversal dos contratos, parâmetros e fontes normativas. `git diff --check` sem erros. Nenhum arquivo de implementação foi criado.
 
 Não houve renderização automática Mermaid, teste de aplicação, execução dos comandos demonstrativos ou provisionamento cloud. As verificações acima validam a documentação e seus exemplos, não o comportamento de software ainda inexistente.

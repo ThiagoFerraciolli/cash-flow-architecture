@@ -4,7 +4,7 @@
 
 ## Convenções
 
-JSON UTF-8, datas ISO 8601, instantes com offset e saída UTC. Valores monetários são strings decimais com exatamente duas casas. Autenticação bearer obrigatória; autorização por permissões técnicas. Base de escopo: comerciante único, BRL, calendário e limites dos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md).
+JSON UTF-8, datas ISO 8601, instantes com offset e saída UTC. Valores monetários são strings decimais com exatamente duas casas. Autenticação bearer obrigatória e autorização por permissões técnicas conforme o [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md). Base de escopo: comerciante único, BRL, calendário e limites dos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md).
 
 `X-Correlation-Id` UUID opcional, gerado se ausente/inválido; retornado em todas as respostas. `traceparent` validado e propagado quando válido. Nunca confiar em correlação para autenticar. `Cache-Control: no-store` em respostas financeiras.
 

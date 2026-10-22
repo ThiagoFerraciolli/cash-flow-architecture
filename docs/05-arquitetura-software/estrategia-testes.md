@@ -1,118 +1,52 @@
-# Estratégia de Testes
+# Estratégia de testes e critérios de aceite
 
-## Objetivo
+**Estado: DOCUMENTAÇÃO APROVADA; TESTES NÃO IMPLEMENTADOS/NÃO EXECUTADOS.** A estratégia cobre os PDFs e os riscos arquiteturais. Ferramentas previstas: xUnit, WebApplicationFactory, Testcontainers, Docker e k6. Não usar provider in-memory como evidência de transações PostgreSQL.
 
-Demonstrar comportamento funcional e, principalmente, os riscos arquiteturais do desafio. A suíte não deve buscar apenas cobertura de linhas.
+## Casos rastreáveis
 
-## 1. Unitários
+| ID | Camada/cenário | Aceite |
+|---|---|---|
+| T01 | Domínio e HTTP | Crédito 100 e débito 20 resultam em saldo 80/contagem 2; validar valores, precisão, datas, paginação e erros |
+| T02 | Idempotência HTTP | Mesma chave/cliente/comando cria um fato; comando divergente dá 409; clientes diferentes têm escopos distintos; retry tardio permanece seguro |
+| T03 | Transação de criação | Falha em qualquer inserção reverte fato, chave e Outbox; timeout não deixa reserva órfã |
+| T04 | Publicação concorrente | Dois publicadores, lease vencida e token antigo; sem perda e sem atualização por proprietário antigo |
+| T05 | Consumo concorrente | Eventos distintos na mesma data somam exatamente; duplicata e versões do mesmo fato não duplicam; conflito de conteúdo gera DLQ |
+| T06 | Independência | Parar API, Worker e banco de Consolidação; registrar 1.000 fatos válidos a 10/s com sucesso e contagem exata; retomar e convergir |
+| T07 | Broker indisponível | Novos fatos confirmam; Outbox cresce; circuit breaker pausa envio sem suspender itens válidos; retorno do broker entrega tudo; payload inválido suspende somente o próprio item |
+| T08 | Crash windows | Cair após envio antes de published_at e após commit antes de ack/delete; recuperar sem perda/duplicação |
+| T09 | Retry e DLQ | Falha sistêmica pausa consumo sem gastar tentativas de aplicação; transitória isolada recupera; permanente isola; redrive preserva fato; destino de retry indisponível não perde mensagem |
+| T10 | Reconciliação | Snapshot consistente diferencia atraso e corrupção; não acusa fato posterior ao snapshot como divergência |
+| T11 | Rebuild | Consumo pausado antes do snapshot, escrita continua; mensagens antes/depois do corte; crash em cada etapa; geração trocada atomicamente e somas exatas |
+| T12 | Retenção e identidade | Simular mensagem expirada e Outbox publicada removida; reconstruir pelo fato/eventId persistido; deduplicação ativa nunca é limpa por prazo |
+| T13 | Segurança | Keycloak e Cognito: 401/403, access token, emissor/assinatura/cliente/scopes/audience aplicável, rotação JWKS/segredo, limite de corpo e taxa; nenhum segredo/payload sensível em logs |
+| T14 | Observabilidade | Correlação e sinais permitem diagnosticar os cenários anteriores; manutenção não vira falsa falha financeira |
+| T15 | Carga de consulta | 50 req/s, perda/falha ≤ 5%, resposta válida e metas internas de latência |
+| T16 | Recuperação de backlog | 10.000 fatos acumulados convergem em até 10 min com escrita contínua 10/s; verificar conjuntos e valores |
+| T17 | Restore e disponibilidade AWS | Restore/PITR de Lançamentos bloqueia escrita, isola fila antiga, cria destino novo, reconstrói a projeção e impede evento antigo; medir RPO/RTO, falha de zona, readiness e reconexão |
+| T18 | Inicialização limpa | Terceiro executa guia local sem AWS; migrations e configuração determinísticas |
+| T19 | Contratos | Evento v1, campos opcionais, versão desconhecida, decimal textual, mudança de geração na paginação |
+| T20 | Isolamento de camadas | Domain/Application sem SDK de broker/framework de persistência; adaptadores separados |
 
-Transactions:
-- cria Credit válido;
-- cria Debit válido;
-- rejeita amount <= 0;
-- rejeita tipo inválido;
-- mantém cálculo/estado determinístico.
+T01 inclui centavos, limite individual, overflow de agregado, timezone na virada do dia, data retroativa e futuro além da tolerância. T02 inclui requisições concorrentes e releitura após conflito. T11 valida também que rollback para geração antiga após retomada é bloqueado. T17 inclui mensagem anterior e posterior ao ponto recuperado, Outbox pendente, retry do cliente com a mesma chave e proibição de redrive entre gerações. API com projeção vazia retorna zeros e completeness UNKNOWN; banco indisponível retorna 503, nunca zeros.
 
-Consolidation:
-- crédito incrementa `TotalCredits`;
-- débito incrementa `TotalDebits`;
-- `Balance = Credits - Debits`;
-- incrementa quantidade;
-- evento repetido não altera projeção quando idempotência é aplicada.
+## Carga reproduzível
 
-## 2. Application tests
+A operação assumida para as 50 req/s é GET /consolidations/{date}; o PDF não esclarece se a carga se refere a consulta ou processamento. Ensaio de escrita/backlog é complementar e tem critério separado.
 
-- `CreateTransaction` persiste lançamento e Outbox na mesma unidade de trabalho;
-- mesma `Idempotency-Key` não cria segundo lançamento;
-- queries respeitam filtros/paginação;
-- aplicação de evento atualiza projeção e processed-event atomicamente.
+Massa: 100.000 lançamentos sintéticos em 30 datas, consolidados reconciliados antes do início. Mistura de créditos/débitos com somas conhecidas. Máquina de referência local: pelo menos 4 CPUs/8 GB disponíveis; registrar modelo/OS/Docker e alocação real. Gerador de carga separado dos recursos limitados da aplicação sempre que possível; registrar quando compartilhar máquina.
 
-## 3. Integração
+Aquecimento 2 min, medição 10 min. k6 `constant-arrival-rate`, 50 iterações/s com exatamente um GET por iteração; distribuir entre as datas pré-carregadas. Token obtido previamente e renovado fora do tempo medido de GET; pré-alocar VUs suficientes para timeout de 5 s (300 como referência), validar capacidade do gerador. Proibir sleeps que reduzam a taxa. Registrar taxa por segundo e total esperado de 30.000 requisições na janela.
 
-Preferência: PostgreSQL real em container, evitando substituir semântica relacional por provider in-memory.
+Definir `failure_rate = (timeouts + erros de transporte + status inesperado + corpo semanticamente inválido) / requests_sent`. Cada requisição conta no máximo uma falha. Sucesso é 200 com schema e valores esperados para a massa estática; um 200 incorreto falha. 429/5xx contam; falhas não são excluídas sem causa demonstrada e relatório. Não atribuir automaticamente erro do ambiente à aplicação, mas não usar essa distinção para aprovar um ensaio inválido.
 
-Casos:
-- migrations sobem em banco vazio;
-- unique constraints de idempotência;
-- commit/rollback lançamento + Outbox;
-- commit/rollback consolidação + ProcessedEvent;
-- publisher lê mensagens pendentes;
-- redelivery não duplica consolidado.
+Aceite: carga emitida sustentada em 50/s, `dropped_iterations = 0`, total esperado emitido, failure_rate ≤ 0,05, P95 ≤ 500 ms e P99 ≤ 1 s (estas duas são metas internas). Gerador incapaz de emitir invalida o ensaio; não reduz o denominador para obter aprovação. Registrar tentadas, enviadas, respostas, timeout, percentis, CPU/memória, conexões, fila e Outbox. Ensaio adicional com escrita concorrente verifica integridade eventual separadamente da massa estática.
 
-## 4. API
+## Matriz por transporte
 
-- POST válido retorna sucesso e identificador;
-- payload inválido retorna 400;
-- GET existente/inexistente;
-- filtros de listagem;
-- consulta de consolidado por data/período;
-- health/readiness.
+RabbitMQ: T01–T16 e T18–T20 localmente, incluindo confirms, mandatory sem rota, ack perdido, falha no repasse retry/DLQ, volume persistente e reinício. SQS real em homologação: repetir invariantes T01–T16/T19/T20 e executar T17; incluir receipt handle, timeout/renovação de visibilidade, IAM/KMS negativos, redrive e expiração em fila descartável isolada. Teste local não certifica AWS.
 
-## 5. Teste arquitetural crítico — independência
+## Evidências e aprovação de execução
 
-### Objetivo
+Na implementação criar `docs/08-testes/` com relatório por caso: commit, data, ambiente, configuração, versões/digests, comando, massa/seed, duração, resultado esperado/obtido, métricas brutas e logs sanitizados. Um caso é aprovado somente por evidência reproduzível; falhas ficam abertas com impacto e correção. A matriz documental permanece distinta do resultado de execução.
 
-Validar RNF explícito: indisponibilidade da Consolidação não torna indisponível o controle de lançamentos.
-
-### Procedimento reproduzível
-
-1. subir ambiente;
-2. parar API/worker de Consolidação;
-3. manter PostgreSQL de Transactions disponível;
-4. executar `POST /transactions`;
-5. verificar resposta de sucesso;
-6. verificar lançamento persistido;
-7. verificar Outbox pendente/publicável;
-8. religar Consolidação;
-9. aguardar processamento do backlog;
-10. verificar convergência do consolidado.
-
-### Aceite
-
-O passo 4 não depende da disponibilidade da Consolidação. Após recuperação, o evento pendente deve convergir sem dupla contabilização.
-
-## 6. Teste de falha do broker
-
-1. indisponibilizar Kafka;
-2. registrar lançamento;
-3. confirmar que lançamento + Outbox persistem;
-4. restabelecer Kafka;
-5. publisher entrega pendência;
-6. consolidação converge.
-
-Esse teste distingue disponibilidade do domínio de Lançamentos da disponibilidade do mecanismo assíncrono.
-
-## 7. Carga — 50 req/s e perda <= 5%
-
-O case informa 50 req/s para o serviço de consolidação, mas não especifica qual operação. Portanto, o teste deve declarar a hipótese em vez de transformar uma interpretação em requisito.
-
-### Hipótese de teste
-
-Para evidência local, aplicar 50 req/s à leitura `GET /consolidations/{date}`, por ser a operação pública de consulta do consolidado definida no refinamento. O processamento assíncrono será medido separadamente por consumer lag/backlog.
-
-### Métricas
-
-- requests enviados;
-- responses por status;
-- requests sem resposta/erro;
-- taxa de perda/falha observada;
-- latência P50/P95/P99 como observação, sem inventar meta;
-- CPU/memória;
-- consumer lag em teste separado.
-
-### Critério
-
-`failed_requests / total_requests <= 0.05` durante a janela definida do ensaio.
-
-Isso é evidência do ambiente local, não certificação de capacidade produtiva.
-
-## 8. Ferramentas
-
-- xUnit para unitários/integração;
-- `WebApplicationFactory` para API;
-- Testcontainers ou containers Docker reais para dependências de integração;
-- k6 para carga reproduzível.
-
-## 9. Evidências
-
-Resultados executados devem ser registrados em `docs/08-testes/`, contendo data, ambiente, comando, cenário e resultado. Não marcar requisito como VALIDADO antes da execução real.
+Referência: [executor de taxa constante do k6](https://grafana.com/docs/k6/latest/using-k6/scenarios/executors/constant-arrival-rate/).

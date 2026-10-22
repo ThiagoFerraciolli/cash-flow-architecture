@@ -1,33 +1,29 @@
-# Matriz de Rastreabilidade
+# Matriz de rastreabilidade
 
-## Objetivo
+**Estado: DOCUMENTAÇÃO APROVADA.** Cadeia: origem → requisito → ASR → decisão → desenho → teste. Os IDs Txx referenciam a estratégia de testes; todos dependem de implementação e execução futuras.
 
-A rastreabilidade conecta requisitos de negócio, refinamentos funcionais/não funcionais, ASRs, decisões arquiteturais, implementação e evidências. ADRs e referências de código/teste serão preenchidos conforme os próximos PRs forem concluídos.
+| Origem/requisito | ASR | Decisão e representação | Testes |
+|---|---|---|---|
+| RN-001 / RF-001 | 002/004/007 | ADR-003/004/005; SDD; contrato POST | T01/T02/T03/T13 |
+| RF-002/003 | 007 | Contratos de consulta/paginação; visão de dados | T01/T13/T19 |
+| RN-002 / RF-004 | 003/004/005 | ADR-002/005/008/009/010; consumidor e geração | T05/T08–T12 |
+| RF-005/006 | 003/006 | Contratos de projeção eventual; consulta por data/período | T01/T15/T19 |
+| RNF-001/013 | 001/008 | ADR-001; bancos/processos separados; local/AWS | T06/T07/T17 |
+| RNF-002/003 | 006 | Parâmetros de carga e estratégia k6 | T15 |
+| RNF-004 | 002 | ADR-003/004; commit e Outbox; backup | T03/T07/T08/T17 |
+| RNF-005 | 003 | Contrato completeness UNKNOWN; recuperação | T10/T11/T16 |
+| RNF-006 | 004 | ADR-005/008; identidades financeiras sem expiração | T02/T05/T08/T12/T19 |
+| RNF-007 | 005/010 | ADR-009; DLQ e snapshot/geração | T09–T12/T17 |
+| RNF-008 | 006/008 | ADR-006; autoscaling/UPSERT/reserva | T04/T05/T15/T16 |
+| RNF-009/012 | 007 | ADR-011; segurança; IAM/JWT/TLS/secrets | T13/T18 |
+| RNF-010/011 | 009 | Observabilidade/auditoria e parâmetros | T01/T10/T11/T14 |
+| RNF-014 | 008 | SDD/componentes; ADR-010/adaptadores | T19/T20 |
+| Execução local dos PDFs | 001/008 | Guia Compose/RabbitMQ/Keycloak | T18 e suíte local |
+| Produção AWS | 008/010 | AWS/implantação/custos/recuperação | Suíte SQS real e T17 |
+| Premissas PRE-007/008 | 003/004 | Contratos e limites monetários/temporais | T01/T19 |
 
-| Origem | Necessidade | ASR relacionado | Decisão/ADR | Implementação/Evidência planejada |
-|---|---|---|---|---|
-| RN-001 / RF-001 | Registrar débito ou crédito | ASR-002, ASR-004 | A definir | API/caso de uso de lançamento + testes unitários/integração |
-| RN-001 / RF-002/003 | Consultar lançamentos | — | A definir no SDD | API de consulta + testes de API |
-| RN-002 / RF-004 | Produzir consolidado diário | ASR-001, ASR-003, ASR-004, ASR-005 | ADRs de decomposição, integração e consistência | Processamento da consolidação + testes de convergência/reprocessamento |
-| RN-002 / RF-005/006 | Consultar consolidado | ASR-006 | A definir no DAS/SDD | API de consulta + testes funcionais e de carga |
-| RNF-001 | Consolidação indisponível não interrompe lançamentos | ASR-001, ASR-008 | ADR de estilo/decomposição e integração | Teste de resiliência com consolidação indisponível |
-| RNF-002/003 | 50 req/s com no máximo 5% de perda de requisições | ASR-006 | Decisões de capacidade na arquitetura-alvo | Teste de carga reproduzível + relatório de resultados |
-| RNF-004 | Preservar lançamento e processamento após confirmação | ASR-002 | ADR após análise de dual write/alternativas | Testes de integração e cenários de falha |
-| RNF-005 | Consolidado converge após defasagem temporária | ASR-003 | ADR de consistência/integração | Teste de atraso e convergência |
-| RNF-006 | Evitar duplicidade/dupla contabilização | ASR-004 | Estratégia de idempotência a definir | Testes de repetição e reprocessamento |
-| RNF-007 | Recuperar trabalho pendente | ASR-005 | ADR de integração/recuperação | Teste de interrupção, recuperação e backlog |
-| RNF-008 | Escalabilidade | ASR-006, ASR-008 | DAS + ADR de estilo arquitetural | Arquitetura-alvo + evidência de carga local |
-| RNF-009 | Segurança | ASR-007 | Security View + ADRs quando necessário | testes de acesso + documentação de consumo/integração |
-| RNF-010 | Observabilidade | ASR-009 | Observability View | logs/métricas/traces/health conforme implementação |
-| RNF-011 | Auditabilidade | ASR-009 | Data/Security View | evidência de correlação e auditoria sem exposição indevida |
-| RNF-012 | Configuração e segredos | ASR-007 | Infrastructure/Security View | configuração externalizada e ausência de segredos no repositório |
-| RNF-013 | Isolamento de falhas | ASR-001, ASR-008 | ADR de estilo/decomposição | teste de indisponibilidade independente |
-| QRNF-001/002/003/008 | SLA/RTO/RPO/DR não definidos | ASR-010 | Decisões condicionadas às metas | arquitetura-alvo explicita mecanismos e dependências sem inventar metas |
+## Fontes principais
 
-## Fluxo de governança
+Regras de API: contratos-http. Evento: ADR-008. Idempotência: ADR-005. Operação de mensageria: ADR-010. Autenticação/autorização: ADR-011. Reserva Outbox: ADR-004. Recuperação: recuperacao-e-reconciliacao. Defaults/metas: parametros-operacionais. As visões explicativas não redefinem esses contratos.
 
-Para decisões significativas, a cadeia será:
-
-`Requisito de negócio → RF/RNF → ASR → alternativas → ADR → DAS/C4/SDD → código → teste → evidência`
-
-Nem todo RF precisa gerar um ASR ou ADR. ADR será usado somente para decisões arquiteturais significativas, evitando documentação artificial.
+Relatórios futuros devem registrar commit, ambiente e resultado em docs/08-testes. Nenhuma execução é declarada validada nesta etapa documental.

@@ -3,6 +3,7 @@ using System.Text.Json;
 using CashFlow.Transactions.Application;
 using CashFlow.Transactions.Domain;
 using CashFlow.Transactions.Infrastructure;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -10,7 +11,7 @@ using Npgsql;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
-    context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.Response.Headers["X-Correlation-Id"].ToString());
+    context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.Items["CorrelationId"]?.ToString());
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Transactions:TimeZone"] ?? "America/Sao_Paulo"));
 builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Transactions") ??
@@ -22,11 +23,22 @@ builder.Services.AddHealthChecks().AddCheck("self", () => HealthCheckResult.Heal
 var app = builder.Build();
 app.Use(async (context, next) =>
 {
-    context.Response.Headers["X-Correlation-Id"] = Guid.TryParse(context.Request.Headers["X-Correlation-Id"], out var id) ? id.ToString() : Guid.NewGuid().ToString();
-    context.Response.Headers.CacheControl = "no-store";
+    var correlationId = Guid.TryParse(context.Request.Headers["X-Correlation-Id"], out var id) ? id.ToString() : Guid.NewGuid().ToString();
+    context.Items["CorrelationId"] = correlationId;
+    context.Response.OnStarting(() =>
+    {
+        context.Response.Headers["X-Correlation-Id"] = correlationId;
+        context.Response.Headers.CacheControl = "no-store";
+        return Task.CompletedTask;
+    });
     await next(context);
 });
-app.UseExceptionHandler();
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    StatusCodeSelector = error => IsPersistenceUnavailable(error)
+        ? StatusCodes.Status503ServiceUnavailable
+        : StatusCodes.Status500InternalServerError
+});
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = x => x.Tags.Contains("live") });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = x => x.Tags.Contains("ready") });
 
@@ -108,6 +120,10 @@ app.MapGet("/transactions", async (HttpContext http, TransactionService service,
 app.Run();
 
 static IResult Problem(int status, string detail) => Results.Problem(statusCode: status, title: "Request failed", detail: detail);
+static bool IsPersistenceUnavailable(Exception error) =>
+    error is NpgsqlException and not PostgresException ||
+    error is PostgresException postgres &&
+    (postgres.SqlState.StartsWith("08", StringComparison.Ordinal) || postgres.SqlState is "57P01" or "57P02" or "57P03");
 static bool TryType(string? value, out TransactionType type)
 {
     type = value == "DEBIT" ? TransactionType.Debit : TransactionType.Credit;

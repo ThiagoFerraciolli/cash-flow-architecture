@@ -1,6 +1,6 @@
 # SDD — Documento de Design de Software
 
-- **Status:** EM REVISÃO FINAL — aguardando validação humana
+- **Status:** PRONTA PARA VALIDAÇÃO HUMANA
 
 ## 1. Objetivo
 
@@ -86,7 +86,7 @@ O Worker recebe `TransactionCreatedV1`, aplica idempotência e atualiza a proje�
 
 ## 7. Contrato de integração
 
-Formato plano e versionado:
+O contrato é formalizado no ADR-008. Formato v1:
 
 ```json
 {
@@ -137,7 +137,7 @@ Semântica:
 - mesma chave + hash diferente → `409 Conflict`;
 - duas requisições simultâneas: unicidade no banco define a vencedora; a outra relê o registro e segue uma das regras anteriores.
 
-A duração da janela é configuração do MVP e deve ser declarada no README; não é requisito do case.
+A duração da janela é configuração do MVP e deverá ser documentada junto à implementação/configuração executável; não é requisito do case.
 
 ## 10. Idempotência e concorrência no consumo
 
@@ -152,15 +152,15 @@ Rollback desfaz tanto a reserva de `event_id` quanto a atualização da projeç�
 
 ## 11. Falhas, retentativa, DLQ e reconciliação
 
-Falha transitória (timeout, banco indisponível, deadlock) não remove a mensagem; SQS aplica nova entrega após `VisibilityTimeout`, com backoff controlado pela aplicação/visibilidade.
+O tratamento é formalizado no ADR-009.
 
-Falha permanente de contrato é encaminhada para a DLQ pela política definida para o consumidor. Após `maxReceiveCount` configurado, a mensagem fica isolada e gera alerta. O valor exato é parâmetro operacional.
+Falha transitória (timeout, banco indisponível, deadlock) não remove a mensagem; SQS aplica nova entrega após `VisibilityTimeout`. Limites e intervalos são configuração operacional.
 
-O runbook deve permitir **redrive da DLQ** após correção da causa. Idempotência torna o redrive seguro.
+Após `maxReceiveCount` configurado, a redrive policy isola a mensagem na DLQ e gera sinal operacional. O runbook permite **redrive da DLQ** após correção da causa. Idempotência torna o redrive seguro.
 
 Para detectar divergência silenciosa, existe procedimento de reconciliação por `BusinessDate`, comparando contagem e somatórios de Lançamentos com a projeção de Consolidação. No MVP é procedimento/teste E2E; automação periódica é evolução.
 
-A fonte de verdade para eventual reconstrução é `financial_transactions`, não a fila. Reconstrução gera novos eventos controlados a partir dos lançamentos do intervalo e valida o resultado por reconciliação.
+A fonte de verdade para eventual reconstrução é `financial_transactions`, não a fila. O mecanismo físico de rebuild será definido no runbook/implementação e deve controlar concorrência com o consumo normal e terminar com reconciliação. Não se fixa antecipadamente replay de fila nem geração obrigatória de novos `eventId`.
 
 ## 12. Tratamento HTTP
 
@@ -175,12 +175,12 @@ Erros usam `application/problem+json`.
 
 ## 13. Segurança
 
-O desafio pede critérios de segurança, mas não fornece IdP, usuários ou perfis. Portanto:
+O desafio pede critérios de segurança, mas não fornece IdP, usuários, scopes ou perfis. Portanto:
 - arquitetura-alvo: OAuth2/OIDC/JWT no limite HTTP, TLS, menor privilégio e segredos externalizados;
 - local: autenticação é configurável e pode usar emissor de desenvolvimento, sem segredo real versionado;
-- não se inventa RBAC de negócio;
+- não se inventa RBAC de negócio nem scopes como requisito do case;
 - acesso do Transactions Worker à SQS: somente `SendMessage` na fila principal;
-- Consolidation Worker: `ReceiveMessage/DeleteMessage/ChangeMessageVisibility` na fila principal e operações necessárias de redrive conforme runbook;
+- Consolidation Worker: `ReceiveMessage/DeleteMessage/ChangeMessageVisibility` na fila principal; redrive administrativo separado quando possível;
 - filas e bancos não são públicos;
 - descrições, tokens e segredos não são registrados em logs.
 
@@ -206,7 +206,8 @@ Além dos projetos unitários e de integração por serviço, `CashFlow.EndToEnd
 - dois consumidores atualizando a mesma data;
 - dois publishers capturando pendências;
 - mensagem em DLQ e redrive;
-- reconciliação;
+- reconciliação/rebuild controlado;
+- contrato/versionamento de `TransactionCreatedV1`;
 - 50 req/s no endpoint de consolidado com taxa de falha <= 5%, declarando explicitamente a operação testada.
 
 ## 17. Limites conscientes

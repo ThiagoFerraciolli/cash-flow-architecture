@@ -32,7 +32,7 @@ Thumbs.db
 
 # Local Docker/runtime data
 .docker-data/
-data/
+/runtime-data/
 
 # Temporary files
 *.tmp

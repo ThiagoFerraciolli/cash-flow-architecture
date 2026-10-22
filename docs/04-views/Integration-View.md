@@ -1,10 +1,10 @@
 # Integration View
 
-- **Status:** PROPOSTO PARA VALIDAÇÃO
+- **Status:** EM REVISÃO FINAL — aguardando validação humana
 
 ## 1. Integrações síncronas
 
-As APIs externas usam HTTPS/JSON. O registro de lançamento retorna sucesso após o commit local de `FinancialTransaction` + `OutboxEvent`; não aguarda consolidação.
+APIs externas usam HTTPS/JSON. `POST /transactions` confirma somente após commit local de lançamento + idempotência + Outbox e nunca aguarda fila ou Consolidação.
 
 ## 2. Integração assíncrona
 
@@ -13,63 +13,67 @@ sequenceDiagram
     participant U as Consumidor
     participant T as Transactions API
     participant DB as Transactions DB
-    participant O as Outbox Publisher
-    participant K as Kafka
-    participant W as Consolidation Consumer
+    participant O as Transactions Worker
+    participant Q as SQS Standard
+    participant W as Consolidation Worker
     participant CDB as Consolidation DB
 
     U->>T: POST /transactions + Idempotency-Key
-    T->>DB: BEGIN
-    T->>DB: INSERT FinancialTransaction
-    T->>DB: INSERT OutboxEvent
-    T->>DB: COMMIT
+    T->>DB: transaction + idempotency + outbox (commit)
     T-->>U: 201 Created
-    O->>DB: busca eventos pendentes
-    O->>K: TransactionCreated(eventId,...)
-    K->>W: entrega at-least-once
-    W->>CDB: BEGIN
-    W->>CDB: verifica ProcessedEvent
-    W->>CDB: atualiza DailyConsolidation + ProcessedEvent
-    W->>CDB: COMMIT
+    O->>DB: captura pendências com SKIP LOCKED
+    O->>Q: SendMessage(TransactionCreatedV1)
+    Q->>W: ReceiveMessage (at-least-once)
+    W->>CDB: processed_event + UPSERT consolidado (commit)
+    W->>Q: DeleteMessage
 ```
 
-## 3. Contrato de evento
-
-Contrato mínimo proposto para `TransactionCreated`:
+## 3. Contrato `TransactionCreatedV1`
 
 ```json
 {
   "schemaVersion": 1,
   "eventId": "uuid",
   "eventType": "TransactionCreated",
-  "occurredAt": "ISO-8601",
-  "transaction": {
-    "id": "uuid",
-    "type": "DEBIT|CREDIT",
-    "amount": 100.00,
-    "transactionOccurredAt": "ISO-8601"
-  }
+  "eventOccurredAt": "2026-10-22T12:00:00Z",
+  "transactionId": "uuid",
+  "transactionType": "DEBIT",
+  "amount": "100.00",
+  "businessDate": "2026-10-22"
 }
 ```
 
-O contrato evita transportar campos desnecessários para a consolidação. Evolução deve ser compatível quando possível; breaking changes exigem nova versão contratual.
+O payload contém apenas informação necessária à projeção. `amount` usa representação decimal textual para evitar ponto flutuante. `traceparent`/`correlation-id` são metadados técnicos da mensagem, não domínio financeiro.
+
+Mudança compatível adiciona campo opcional; mudança incompatível exige nova versão e período de compatibilidade do consumidor.
 
 ## 4. Semântica de entrega
 
-- entrega: **at-least-once**;
-- duplicação: esperada e neutralizada por `eventId` persistente;
-- exactly-once ponta a ponta: não prometido;
-- falha após publish e antes de marcar Outbox como publicado pode gerar redelivery;
-- falha persistente deve ser isolada e observável, com política de retry/DLQ definida antes da implementação.
+- SQS Standard: **at-least-once**;
+- duplicação é esperada;
+- exatamente uma vez ponta a ponta não é prometido;
+- falha após envio e antes de `published_at` pode republicar;
+- falha após commit do consumidor e antes de `DeleteMessage` pode redeliver;
+- `eventId` + transação local tornam ambos seguros.
 
-## 5. Ordenação
+## 5. Retry e DLQ
 
-A projeção atual é composta por somas e contagem de lançamentos imutáveis. Com idempotência, essas operações são comutativas; portanto, o resultado diário correto não exige ordenação global dos eventos.
+Publisher mantém tentativas, `next_attempt_at` e erro na Outbox; usa backoff com jitter para falhas transitórias.
 
-Não será inventada partition key de negócio. Se o domínio evoluir para correções/reversões ou invariantes dependentes de sequência, a estratégia de particionamento/ordenação deverá ser reavaliada.
+No consumidor, falha não executa `DeleteMessage`. Após `VisibilityTimeout`, a mensagem volta a ficar disponível. A redrive policy envia mensagens que excedem `maxReceiveCount` à DLQ. Valores são configurações operacionais, pois o desafio não fornece limites.
 
-## 6. Kafka e alternativa de menor custo
+Redrive da DLQ ocorre somente após correção/triagem e é seguro pela idempotência.
 
-Kafka permanece a tecnologia de referência do ADR-002 por retenção, replay, consumer offsets e visibilidade de lag. O requisito de 50 req/s, isoladamente, não justifica Kafka.
+## 6. Ordenação e concorrência
 
-Na arquitetura AWS/custos, Kafka gerenciado será comparado com uma fila gerenciada mais simples. Se replay de longo prazo e múltiplos consumidores não forem necessários, uma fila como Amazon SQS pode reduzir custo e operação mantendo o desacoplamento necessário. Essa comparação é um trade-off arquitetural, não uma mudança silenciosa de requisito.
+SQS Standard não garante ordem. O MVP soma créditos/débitos e conta lançamentos imutáveis; essas operações são comutativas. O UPSERT usa incrementos atômicos e o consumidor deduplica por `eventId`, portanto não existe requisito atual para FIFO.
+
+Se surgirem estornos/correções dependentes de sequência ou chave de conta/caixa, a decisão deve ser reaberta em vez de inventar `MessageGroupId` agora.
+
+## 7. Recuperação e reconciliação
+
+A fila fornece recuperação do backlog normal e a DLQ isola poison messages. Ela não é fonte de verdade histórica. Reconciliação compara `financial_transactions` com `daily_consolidations` por `BusinessDate`; reconstrução excepcional parte dos lançamentos.
+
+## 8. Por que SQS, não Kafka
+
+ADR-007 registra a decisão. Kafka oferece capacidades úteis de log/replay/múltiplos consumidores, mas elas não são exigidas pelos dois desafios. SQS atende independência, durabilidade temporária, retry e escala conhecida com menor custo e superfície operacional. Kafka permanece opção de evolução condicionada a novos requisitos.

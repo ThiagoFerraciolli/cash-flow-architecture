@@ -6,16 +6,16 @@ Ambos pedem controle de lançamentos, consolidado diário, independência entre 
 
 Diferenciais de Soluções: custos/licenças, observabilidade, segurança de integração e transição se houver legado. Não há legado conhecido; transição de legado é não aplicável.
 
-## Escopo desta branch
+## Estado da entrega
 
-Somente documentação em português. Todas as decisões de texto estão aprovadas. Não iniciar C#, Docker Compose executável, migrations, scripts de teste, Terraform ou provisionamento até finalizar esta etapa. Exemplos em Markdown são contratos/documentação, não implementação.
+A documentação arquitetural está concluída para o escopo definido e a implementação ocorre incrementalmente. Exemplos em Markdown são contratos ou especificações e não constituem evidência executável por si só. O corte entre implementação, homologação e evolução está em [escopo-implementacao.md](escopo-implementacao.md).
 
-Estados são separados: DOCUMENTAÇÃO APROVADA, IMPLEMENTAÇÃO PENDENTE e EVIDÊNCIA PENDENTE. Não marcar desempenho, disponibilidade ou execução local como demonstrados por existir um desenho. Repositório público foi confirmado em 22/10/2026 via metadados GitHub.
+Estados são separados: DOCUMENTADO, IMPLEMENTADO e DEMONSTRADO. Não marcar desempenho, disponibilidade ou execução local como demonstrados apenas pela existência do desenho. Repositório público foi confirmado em 22/10/2026 via metadados GitHub.
 
 ## Restrições técnicas aprovadas
 
-C#/.NET; PostgreSQL por contexto; RabbitMQ local; SQS AWS; dois serviços/quatro processos; domínio sem dependência de SDK; idempotência e recuperação transacionais; identidade e segurança obrigatórias; dados sintéticos na demonstração. Configurações e segredos externos. Valores e metas de referência são escolhas da arquitetura, não requisitos inventados do cliente.
+C#/.NET; PostgreSQL por contexto; RabbitMQ local; SQS AWS; dois serviços/quatro processos; domínio sem dependência de SDK; idempotência e recuperação transacionais; identidade e segurança conforme o escopo de implementação; dados sintéticos na demonstração. Configurações e segredos externos. Valores e metas de referência são escolhas da arquitetura, não requisitos inventados do cliente.
 
 ## Gestão de mudança
 
-Trabalhar na branch atual. Aprovação documental autoriza concluir os textos, não implica abrir PR, fazer merge ou provisionar. Mudança de escopo posterior deve atualizar requisito, ADR, contrato e teste afetado. A etapa seguinte implementará o desenho aprovado e acrescentará evidências verificáveis.
+Mudança de escopo deve atualizar requisito, ADR, contrato e teste afetado. Decisões da arquitetura-alvo podem permanecer documentadas mesmo quando sua implementação estiver classificada como homologação ou evolução; nesses casos, a documentação deve deixar explícito que não existe evidência executável correspondente.

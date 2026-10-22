@@ -48,9 +48,9 @@ docker compose stop
 
 ## Exemplo de uso previsto
 
-Após o bootstrap futuro, carregar em variáveis somente os valores locais de cliente/segredo; não versionar tokens nem executar com shell em modo de rastreamento. `.env.example` documentará `DEMO_CLIENT_ID=cashflow-demo`, `DEMO_CLIENT_SECRET`, `READER_CLIENT_SECRET`, `LOAD_CLIENT_SECRET`, senhas PostgreSQL/RabbitMQ e bootstrap Keycloak. A preparação gera os segredos localmente; o bootstrap idempotente do serviço identity aguarda o Keycloak, cria realm/clientes/scopes/audience e mapper explícito `client_id` no access token (derivado do cliente autenticado, não enviado livremente pelo usuário), e só fica saudável após concluir. Usa esses valores e falha se algum obrigatório estiver vazio. Não aceitar credenciais padrão fixas como fallback. Gerar um valor diferente por segredo com `openssl rand -hex 32`; copiar para .env, restringir sua leitura ao usuário e exportar DEMO_CLIENT_SECRET apenas no terminal usado na demonstração.
+Após a implementação das capacidades correspondentes, carregar em variáveis somente os valores locais de cliente/segredo; não versionar tokens nem executar com shell em modo de rastreamento. `.env.example` documentará `DEMO_CLIENT_ID=cashflow-demo`, `DEMO_CLIENT_SECRET`, `READER_CLIENT_SECRET`, `LOAD_CLIENT_SECRET`, senhas PostgreSQL/RabbitMQ e bootstrap Keycloak. A preparação gera os segredos localmente; o bootstrap idempotente do serviço identity aguarda o Keycloak, cria realm/clientes/scopes/audience e mapper explícito `client_id` no access token (derivado do cliente autenticado, não enviado livremente pelo usuário), e só fica saudável após concluir. Usa esses valores e falha se algum obrigatório estiver vazio. Não aceitar credenciais padrão fixas como fallback. Gerar um valor diferente por segredo com `openssl rand -hex 32`; copiar para .env, restringir sua leitura ao usuário e exportar DEMO_CLIENT_SECRET apenas no terminal usado na demonstração.
 
-Os comandos abaixo pressupõem `DEMO_CLIENT_SECRET` definido no terminal pelo operador; não são executáveis nesta branch sem a aplicação futura. O token dura 15 min; renovar durante ensaios longos.
+Os comandos abaixo pressupõem `DEMO_CLIENT_SECRET` definido no terminal pelo operador e tornam-se executáveis quando a aplicação e a capacidade de identidade estiverem implementadas. O token dura 15 min; renovar durante ensaios longos.
 
 ```sh
 TOKEN=$(curl --fail --silent --show-error \
@@ -79,7 +79,7 @@ Saída esperada: POSTs com 201; consulta com créditos 100.00, débitos 20.00, s
 
 ## Demonstração mínima
 
-Criar crédito 100,00 e débito 20,00 no mesmo dia; consultar saldo projetado 80,00 e contagem 2 após convergência. Repetir POST com a mesma chave: nenhum novo lançamento. Parar toda Consolidação, registrar novos fatos e comprovar persistência; reiniciar e verificar somas exatas. Parar RabbitMQ, registrar e verificar Outbox pendente; restaurar broker e confirmar publicação. Exercitar DLQ, redrive e reconstrução via ferramenta de recuperação.
+Criar crédito 100,00 e débito 20,00 no mesmo dia; consultar saldo projetado 80,00 e contagem 2 após convergência. Repetir POST com a mesma chave: nenhum novo lançamento. Parar toda Consolidação, registrar novos fatos e comprovar persistência; reiniciar e verificar somas exatas. Parar RabbitMQ, registrar e verificar Outbox pendente; restaurar broker e confirmar publicação. Exercitar DLQ, redrive e reconstrução conforme as capacidades classificadas para implementação incremental; mecanismos classificados como evolução não bloqueiam o aceite local inicial.
 
 ## Diagnóstico e limites
 

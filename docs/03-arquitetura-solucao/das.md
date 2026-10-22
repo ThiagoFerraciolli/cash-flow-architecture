@@ -1,10 +1,10 @@
 # DAS — Documento de arquitetura da solução
 
-Escopo: controle de lançamentos e relatório diário dos dois desafios Keyrus. O objetivo é preservar registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e implantação demonstrável na AWS.
+Escopo: controle de lançamentos e relatório diário dos dois desafios de arquitetura. O objetivo é preservar registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e implantação demonstrável na AWS.
 
 ## Direcionadores e limites
 
-Os PDFs exigem as duas capacidades, independência de disponibilidade, 50 req/s no consolidado e perda de requisições até 5%. Exigem ainda implementação/testes/execução local na entrega final; esta branch conclui apenas o desenho. Hipóteses aprovadas: comerciante único, BRL, calendário America/Sao_Paulo e saldo do movimento diário. Não há estorno, edição ou multi-tenant no escopo.
+Os desafios exigem as duas capacidades, independência de disponibilidade, 50 req/s no consolidado e perda de requisições até 5%. Exigem ainda implementação/testes/execução local na entrega final. A arquitetura-alvo está documentada e sua implementação segue o [escopo de implementação](../01-requisitos/escopo-implementacao.md). Hipóteses aprovadas: comerciante único, BRL, calendário America/Sao_Paulo e saldo do movimento diário. Não há estorno, edição ou multi-tenant no escopo.
 
 ## Decomposição
 
@@ -41,7 +41,7 @@ APIs autenticam e autorizam conforme o [ADR-011](../06-adr/adr-011-autenticacao-
 
 ## Capacidade, disponibilidade e custo
 
-Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define réplicas, rede, failover e limites de escala; [custos](../07-infraestrutura/estimativa-custos.md) tornam explícita a topologia e as hipóteses tarifárias. Não há garantia de capacidade ou SLA medido nesta etapa.
+Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define réplicas, rede, failover e limites de escala; [custos](../07-infraestrutura/estimativa-custos.md) tornam explícita a topologia e as hipóteses tarifárias. Não há garantia de capacidade ou SLA medido até que existam evidências executadas no ambiente declarado.
 
 ## Decisões e fontes
 
@@ -57,4 +57,4 @@ Metas internas e configurações estão nos [parâmetros operacionais](../07-inf
 | Autenticação e autorização | ADR-011 |
 | API e software | Contratos HTTP; SDD |
 
-A [matriz de conformidade](../01-requisitos/matriz-conformidade.md) separa cobertura documental de evidências futuras. Sem legado informado, transição de legado não é necessária; o caminho local→AWS está definido no plano de implantação.
+A [matriz de conformidade](../01-requisitos/matriz-conformidade.md) separa cobertura documental de evidências. Sem legado informado, transição de legado não é necessária; o caminho local→AWS está definido no plano de implantação.

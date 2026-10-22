@@ -1,32 +1,32 @@
 # Implantação, promoção e operação
 
-## Entregáveis da próxima etapa
+## Escopo de implantação
 
-C# e testes; Compose local e seed de identidade; migrations; dois adaptadores de mensagens; ferramenta de recuperação; OpenAPI; imagens imutáveis; scripts de carga; Terraform para rede, ECS, RDS, SQS/DLQ, Cognito, IAM, KMS, ALB/WAF, segredos e alarmes. Terraform é a ferramenta escolhida para infraestrutura como código; estado remoto criptografado, bloqueio e acesso restrito, sem segredos em arquivos versionados. Pipeline GitHub Actions com OIDC para AWS, sem access keys estáticas.
+A arquitetura-alvo prevê C# e testes, Compose local, migrations, mensageria, recuperação, OpenAPI, imagens imutáveis, carga e uma topologia AWS com infraestrutura como código. O que é obrigatório na entrega local, o que depende de homologação AWS e o que permanece como evolução está definido em [escopo de implementação](../01-requisitos/escopo-implementacao.md). Terraform é a ferramenta escolhida para uma futura infraestrutura como código; estado remoto deve ser criptografado, bloqueado e restrito, sem segredos versionados. Um pipeline AWS futuro deve usar OIDC, sem access keys estáticas.
 
 ## Promoção
 
-1. Build e testes unitários/contrato/análise de dependências; gerar imagens, SBOM e digest.
-2. Integração local com PostgreSQL e RabbitMQ reais; executar falhas, concorrência, recuperação e carga; publicar resultados associados ao commit.
-3. Provisionar homologação AWS isolada com dados sintéticos; validar plano Terraform, permissões e custos. Infraestrutura de produção usa conta/estado/segredos próprios.
-4. Criar bancos, filas, clientes OAuth e permissões; executar migrations como task eventual com papel exclusivo. Falha bloqueia deployment.
-5. Subir consumidores compatíveis com versão atual e nova antes de produtores novos; iniciar APIs/Workers, validar readiness e smoke tests.
-6. Executar suíte SQS real, incluindo IAM negativo, KMS, visibilidade, redrive, indisponibilidade e expiração simulada em fila isolada. Nunca reduzir retenção da fila de produção para teste.
-7. Ensaiar 50 req/s, restore da fonte com bloqueio de escrita e geração física nova de fila, rebuild da projeção, troca de geração e failover. Comparar metas e registrar desvios. Release só pode declarar capacidade demonstrada no ambiente medido.
-8. Promover o mesmo digest, sem rebuild, para produção; observar erros, atraso e reconciliação. Alterações de infraestrutura e migrations compatíveis precedem promoção de aplicação.
+1. Build e testes unitários/contrato/análise de dependências; gerar imagens e artefatos quando essa etapa estiver implementada.
+2. Integração local com PostgreSQL e RabbitMQ reais; executar falhas, concorrência, recuperação e carga correspondentes às capacidades implementadas; associar resultados ao commit.
+3. Homologação AWS, quando disponível, deve ser isolada e usar dados sintéticos; validar infraestrutura, permissões e custos antes de qualquer promoção produtiva.
+4. Criar bancos, filas, clientes OAuth e permissões do ambiente alvo; migrations devem executar como tarefa controlada e falha deve bloquear deployment.
+5. Subir consumidores compatíveis antes de produtores incompatíveis; validar readiness e smoke tests.
+6. A suíte SQS real, incluindo IAM negativo, KMS, visibilidade e redrive, é evidência de homologação AWS e não bloqueia a entrega executável local.
+7. Ensaios de capacidade, restore, rebuild e failover devem registrar o ambiente medido. Só declarar capacidade demonstrada quando houver evidência executada correspondente.
+8. Promoção produtiva deve reutilizar o mesmo artefato imutável validado, sem rebuild.
 
 ## Reversão
 
 Rollback de imagem é permitido somente se schema/contrato continuar compatível. Migrations seguem expandir→migrar→contrair; remoção de coluna/contrato ocorre em release posterior, com backup e verificação de dependentes. Rollback de imagem não reverte dados financeiros. Problema em projeção exige procedimento de recuperação; não executar truncamento ou reativação ingênua da geração antiga.
 
-Circuit breaker do ECS protege falha de inicialização; alarme de erro sustentado, ausência de tasks prontas ou divergência dispara interrupção da promoção. Preservar imagens e versão anterior de configuração, com trilha auditável. Para segredo comprometido, rotacionar em vez de restaurar segredo inseguro.
+Circuit breaker do ECS protege falha de inicialização; alarme de erro sustentado, ausência de tasks prontas ou divergência deve interromper promoção futura. Preservar imagens e versão anterior de configuração, com trilha auditável. Para segredo comprometido, rotacionar em vez de restaurar segredo inseguro.
 
 ## Dados e brokers
 
-O ambiente local contém dados sintéticos e não é fonte de migração produtiva. Produção inicia vazia. Uma demonstração que precise preservar dados deve exportar snapshot de Lançamentos e identidades de idempotência, importar em ambiente isolado e reconstruir Consolidação antes da liberação; não copiar mensagens entre brokers. Em restore de Lançamentos, a geração antiga de fila permanece isolada e o destino novo é configurado antes da reabertura conforme o procedimento de recuperação. Essas operações são excepcionais e devem ser ensaiadas.
+O ambiente local contém dados sintéticos e não é fonte de migração produtiva. Produção inicia vazia. Uma demonstração que precise preservar dados deve exportar snapshot de Lançamentos e identidades de idempotência, importar em ambiente isolado e reconstruir Consolidação antes da liberação; não copiar mensagens entre brokers. Operações de restore e troca física de fila pertencem ao procedimento de recuperação e devem ser ensaiadas antes de uso produtivo.
 
 ## Critérios para liberação produtiva
 
-Requisitos funcionais demonstrados; 50 req/s e taxa de falha medida; indisponibilidade de toda Consolidação sem interromper lançamentos; zero dupla contabilização; Keycloak e Cognito validados conforme ADR-011; redrive dentro da mesma geração, rebuild e restore com troca de fila ensaiados; backup ativo; alarmes com destino configurado; orçamento e residência de dados confirmados; digests, plano de reversão e responsáveis operacionais registrados.
+Requisitos funcionais demonstrados; capacidade e taxa de falha medidas; indisponibilidade de toda Consolidação sem interromper lançamentos; zero dupla contabilização; identidade validada no ambiente correspondente; mecanismos de recuperação ensaiados; backup ativo; alarmes com destino configurado; orçamento e residência de dados confirmados; artefatos, plano de reversão e responsáveis operacionais registrados.
 
-Esses critérios são controles da futura implantação, não aprovação pendente do texto desta branch. A documentação está aprovada e a implementação permanece fora do escopo atual.
+Esses critérios descrevem a arquitetura operacional de produção. Não são todos gates da entrega local: capacidades classificadas como homologação ou evolução só podem ser consideradas demonstradas quando o respectivo ambiente e evidências existirem.

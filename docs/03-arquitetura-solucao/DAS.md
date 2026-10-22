@@ -1,6 +1,6 @@
 # DAS — Documento de Arquitetura da Solução
 
-- **Status:** EM REVISÃO FINAL — aguardando validação humana
+- **Status:** PRONTA PARA VALIDAÇÃO HUMANA
 - **Escopo:** MVP dos desafios de Arquiteto de Soluções e Arquiteto de Software
 
 ## 1. Objetivo
@@ -28,7 +28,6 @@ A solução possui **2 serviços de negócio e 4 processos executáveis**.
 flowchart LR
     U[Consumidor] -->|HTTPS| TA[Transactions API]
     U -->|HTTPS| CA[Consolidation API]
-
     TA --> TDB[(PostgreSQL\nTransactions)]
     TW[Transactions Worker\nOutbox Publisher] --> TDB
     TW --> Q[SQS Standard]
@@ -36,7 +35,6 @@ flowchart LR
     CW --> CDB[(PostgreSQL\nConsolidation)]
     CA --> CDB
     Q -. redrive .-> D[DLQ]
-
     OBS[Observabilidade] -. telemetria .- TA
     OBS -. telemetria .- TW
     OBS -. telemetria .- CA
@@ -51,7 +49,6 @@ Separar API e Worker permite escala, ciclo operacional e health independentes se
 ## 4. Responsabilidades
 
 ### Lançamentos
-
 - `POST /transactions` com `Idempotency-Key` obrigatório;
 - `GET /transactions/{id}` e listagem paginada;
 - persistir fato financeiro, idempotência e Outbox no mesmo commit;
@@ -59,7 +56,6 @@ Separar API e Worker permite escala, ciclo operacional e health independentes se
 - publicar Outbox assincronamente pelo Transactions Worker.
 
 ### Consolidação
-
 - consumir `TransactionCreatedV1` at-least-once;
 - deduplicar por `eventId`;
 - atualizar `DailyConsolidation` por UPSERT atômico;
@@ -82,7 +78,6 @@ Separar API e Worker permite escala, ciclo operacional e health independentes se
 ## 6. Consistência e fluxo
 
 ### Registro
-
 1. API valida payload e chave de idempotência;
 2. reserva/valida a chave;
 3. persiste lançamento + registro de idempotência + Outbox atomicamente;
@@ -93,7 +88,6 @@ Separar API e Worker permite escala, ciclo operacional e health independentes se
 Falha depois de `SendMessage` e antes de `publishedAt` pode duplicar a mensagem. Isso é esperado.
 
 ### Consolidação
-
 1. SQS entrega a mensagem;
 2. Worker inicia transação local;
 3. `INSERT processed_event ... ON CONFLICT DO NOTHING` reserva o `eventId`;
@@ -107,7 +101,7 @@ A semântica é **at-least-once**, sem promessa de exactly-once ponta a ponta e 
 
 O desafio fala em consolidado diário, mas não define fuso, fechamento ou qual timestamp governa o dia. Para impedir divergência, Lançamentos deriva e persiste `BusinessDate` a partir de `OccurredAt` usando fuso configurável e inclui esse valor no evento.
 
-O fuso usado na demonstração é premissa técnica explícita. Uma regra de fechamento bancário futura substitui essa premissa mediante nova decisão.
+O fuso usado na demonstração é premissa técnica explícita, não requisito do case. Uma regra de fechamento futura substitui essa premissa mediante nova decisão.
 
 ## 8. Falhas e recuperação
 
@@ -121,7 +115,7 @@ O fuso usado na demonstração é premissa técnica explícita. Uma regra de fec
 
 ## 9. Segurança
 
-Arquitetura-alvo: HTTPS/TLS, OAuth2/OIDC/JWT no limite HTTP, menor privilégio IAM, Secrets Manager/KMS, bancos/filas sem exposição pública e criptografia em repouso. Não se inventa IdP ou RBAC de negócio.
+Arquitetura-alvo: HTTPS/TLS, OAuth2/OIDC/JWT no limite HTTP, menor privilégio IAM, Secrets Manager/KMS, bancos/filas sem exposição pública e criptografia em repouso. Não se inventa IdP, scopes ou RBAC de negócio.
 
 Permissões de processos são separadas: Publisher envia à fila; Consolidation Worker recebe/remove/ajusta visibilidade; operação de redrive é controlada. Segredos e descrições sensíveis não entram em logs.
 
@@ -153,7 +147,7 @@ Não se introduzem cache, lock distribuído ou FIFO sem requisito/medição. O t
 
 ## 13. Custos e transição
 
-A estimativa de custos deve usar SQS como mensageria principal e MSK somente como comparação/evolução. Toda estimativa precisa declarar região, dimensionamento e itens excluídos.
+A estimativa de custos usa SQS como mensageria principal e MSK somente como comparação/evolução. Toda estimativa declara região, dimensionamento e itens excluídos.
 
 A arquitetura de transição permanece explicitamente hipotética porque o desafio não descreve legado; ela demonstra abordagem sem alegar fatos sobre o ambiente do cliente.
 
@@ -168,9 +162,10 @@ A arquitetura de transição permanece explicitamente hipotética porque o desaf
 | Idempotência | entrada HTTP + consumidor | ADR-005 / SDD |
 | Plataforma | AWS ECS/Fargate | ADR-006 |
 | Mensageria | SQS Standard + DLQ; Kafka como evolução condicional | ADR-007 |
-| Data diária | `BusinessDate` calculado uma vez e propagado | SDD / premissas |
-| Recuperação | backlog, DLQ/redrive, reconciliação e rebuild pela fonte | SDD / testes |
+| Contrato | `TransactionCreatedV1` explícito e versionado | ADR-008 |
+| Recuperação | retry, DLQ/redrive, reconciliação e rebuild pela fonte | ADR-009 |
+| Data diária | `BusinessDate` calculado uma vez e propagado | ADR-008 / SDD / premissas |
 
 ## 15. Gate documental
 
-Antes de qualquer implementação, a revisão final deve confirmar coerência entre requisitos, ASRs, ADRs, DAS, C4, dados, integração, AWS, segurança/observabilidade, custos, SDD, testes, README e matrizes. Enquanto houver contradição transversal, a documentação permanece **em revisão** e não deve ser apresentada como aprovada.
+A revisão transversal e a segunda passagem sob as perspectivas de Solutions Architect e Software Architect foram concluídas. A documentação está **pronta para validação humana**. Isso não transforma implementação ou testes em concluídos e não autoriza PR/merge sem a validação do responsável.

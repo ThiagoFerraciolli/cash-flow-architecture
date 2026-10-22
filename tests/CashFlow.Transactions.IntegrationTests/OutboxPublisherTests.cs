@@ -117,13 +117,52 @@ public sealed class OutboxPublisherTests
     }
 
     [Fact]
+    public async Task Configured_topology_is_initialized_and_delivers_confirmed_event()
+    {
+        await WithDatabase(async source =>
+        {
+            var uri = Environment.GetEnvironmentVariable("CASHFLOW_TEST_RABBITMQ");
+            if (string.IsNullOrWhiteSpace(uri)) Assert.Skip("Set CASHFLOW_TEST_RABBITMQ for RabbitMQ tests.");
+            var suffix = Guid.NewGuid().ToString("N");
+            var exchange = "cashflow.custom." + suffix;
+            var routingKey = "transaction.custom." + suffix;
+            var queue = "cashflow.custom." + suffix;
+            var fact = await Seed(source);
+            var factory = new ConnectionFactory { Uri = new Uri(uri) };
+            await using var connection = await factory.CreateConnectionAsync(Token);
+            await using var channel = await connection.CreateChannelAsync(cancellationToken: Token);
+            await using var publisher = new RabbitMqOutboxPublisher(uri, exchange, routingKey, queue);
+            try
+            {
+                var worker = new OutboxWorker(new PostgresOutboxLeaseStore(source), publisher,
+                    NullLogger<OutboxWorker>.Instance);
+                await worker.RunBatchAsync(Token);
+                Assert.Equal("PUBLISHED", await State(source, fact.EventId));
+                var delivery = await channel.BasicGetAsync(queue, autoAck: true, cancellationToken: Token);
+                Assert.NotNull(delivery);
+                Assert.Equal(exchange, delivery.Exchange);
+                Assert.Equal(routingKey, delivery.RoutingKey);
+                Assert.Equal(fact.EventId.ToString(), delivery.BasicProperties.MessageId);
+                using var payload = JsonDocument.Parse(delivery.Body);
+                Assert.Equal(fact.EventId, payload.RootElement.GetProperty("eventId").GetGuid());
+            }
+            finally
+            {
+                await channel.QueueDeleteAsync(queue, cancellationToken: Token);
+                await channel.ExchangeDeleteAsync(exchange, cancellationToken: Token);
+            }
+        });
+    }
+
+    [Fact]
     public async Task Mandatory_unroutable_event_stays_pending_and_does_not_consume_attempt()
     {
         await WithDatabase(async source => await WithQueue(async (uri, exchange, _, queue, channel) =>
         {
             var fact = await Seed(source);
             await using var publisher = new RabbitMqOutboxPublisher(uri, exchange, "missing-route");
-            var worker = new OutboxWorker(new PostgresOutboxLeaseStore(source), publisher,
+            var worker = new OutboxWorker(new PostgresOutboxLeaseStore(source),
+                new PublishWithoutInitialization(publisher),
                 NullLogger<OutboxWorker>.Instance);
             await worker.RunBatchAsync(Token);
             Assert.Equal("PENDING", await State(source, fact.EventId));
@@ -221,6 +260,14 @@ public sealed class OutboxPublisherTests
             inspect.Parameters.AddWithValue(fact.EventId);
             Assert.Contains("99", (string)(await inspect.ExecuteScalarAsync(Token))!);
         });
+    }
+
+    private sealed class PublishWithoutInitialization(RabbitMqOutboxPublisher publisher) : IOutboxEventPublisher
+    {
+        public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task ProbeAsync(CancellationToken cancellationToken) => publisher.ProbeAsync(cancellationToken);
+        public Task PublishAsync(OutboxLease lease, CancellationToken cancellationToken) =>
+            publisher.PublishAsync(lease, cancellationToken);
     }
 
     private sealed class TimeoutPublisher : IOutboxEventPublisher

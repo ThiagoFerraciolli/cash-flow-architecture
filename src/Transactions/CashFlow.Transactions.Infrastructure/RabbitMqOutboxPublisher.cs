@@ -9,7 +9,8 @@ using RabbitMQ.Client.Exceptions;
 namespace CashFlow.Transactions.Infrastructure;
 
 public sealed class RabbitMqOutboxPublisher(string uri, string exchange = "cashflow.events",
-    string routingKey = "transaction.created.v1") : IOutboxEventPublisher, IAsyncDisposable
+    string routingKey = "transaction.created.v1", string queue = "consolidation.transactions.v1")
+    : IOutboxEventPublisher, IAsyncDisposable
 {
     private readonly ConnectionFactory _factory = new() { Uri = new Uri(uri), AutomaticRecoveryEnabled = true };
     private readonly SemaphoreSlim _connectionGate = new(1, 1);
@@ -19,17 +20,16 @@ public sealed class RabbitMqOutboxPublisher(string uri, string exchange = "cashf
     {
         var connection = await ConnectionAsync(cancellationToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
-        await channel.ExchangeDeclareAsync("cashflow.events", ExchangeType.Direct, durable: true,
+        await channel.ExchangeDeclareAsync(exchange, ExchangeType.Direct, durable: true,
             autoDelete: false, cancellationToken: cancellationToken);
-        await channel.QueueDeclareAsync("consolidation.transactions.v1", durable: true, exclusive: false,
+        await channel.QueueDeclareAsync(queue, durable: true, exclusive: false,
             autoDelete: false, arguments: new Dictionary<string, object?>
             {
                 ["x-queue-type"] = "quorum",
                 ["x-max-length-bytes"] = 1_073_741_824L,
                 ["x-overflow"] = "reject-publish"
             }, cancellationToken: cancellationToken);
-        await channel.QueueBindAsync("consolidation.transactions.v1", "cashflow.events",
-            "transaction.created.v1", cancellationToken: cancellationToken);
+        await channel.QueueBindAsync(queue, exchange, routingKey, cancellationToken: cancellationToken);
     }
 
     public async Task PublishAsync(OutboxLease lease, CancellationToken cancellationToken)

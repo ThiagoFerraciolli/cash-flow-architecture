@@ -1,6 +1,6 @@
 # C4 — Componentes de software
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Cada diagrama decompõe os processos de um serviço. Interfaces são portas; adaptadores de infraestrutura realizam acesso externo.
+Cada diagrama decompõe os processos de um serviço. Interfaces são portas; adaptadores de infraestrutura realizam acesso externo.
 
 ## Lançamentos
 

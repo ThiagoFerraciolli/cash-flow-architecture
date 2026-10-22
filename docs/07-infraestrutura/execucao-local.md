@@ -1,7 +1,5 @@
 # Execução local — especificação do ambiente
 
-**Estado: DOCUMENTAÇÃO APROVADA; AMBIENTE A IMPLEMENTAR.** Os arquivos e comandos abaixo são o contrato da próxima etapa. Não existem Compose, imagens da aplicação, migrations ou testes executáveis nesta branch. Este guia define como a entrega executável deverá funcionar.
-
 ## Pré-requisitos e composição
 
 Docker Engine com Compose v2, Git, curl, jq e OpenSSL para os exemplos, 4 CPUs, 8 GB de RAM disponíveis e 15 GB de disco como referência inicial; SDK .NET 10 apenas para execução fora de containers. Primeira preparação requer internet para imagens/pacotes; execução posterior não depende de AWS. Linux containers, imagens multi-arquitetura quando disponíveis e versões fixadas por digest na implementação; não usar `latest`.

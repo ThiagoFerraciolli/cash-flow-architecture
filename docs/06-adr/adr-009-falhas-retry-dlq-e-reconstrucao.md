@@ -1,6 +1,5 @@
 # ADR-009 — Recuperação verificável a partir da fonte financeira
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-004/005/006/007/010; ASR-002/003/004/005/009.
 
 ## Decisão

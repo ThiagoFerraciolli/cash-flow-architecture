@@ -1,7 +1,5 @@
 # SDD — Documento de design de software
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Desenho a implementar; nenhuma classe ou teste foi desenvolvido nesta branch.
-
 ## Estrutura e dependências
 
 C#/.NET 10 LTS, ASP.NET Core, Worker Services, EF Core 10/Npgsql, PostgreSQL 17, OpenTelemetry. RabbitMQ.Client e AWS SDK ficam em adaptadores. A implementação fixará versões de patch suportadas em lockfiles/digests e verificará compatibilidade; [política de suporte .NET](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core).

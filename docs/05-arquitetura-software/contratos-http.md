@@ -1,6 +1,6 @@
 # Contratos HTTP
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Contrato a implementar em ASP.NET Core e publicar futuramente como OpenAPI. Exemplos são especificação, não respostas de uma aplicação existente.
+Contrato a implementar em ASP.NET Core e publicar futuramente como OpenAPI. Exemplos são especificação, não respostas de uma aplicação existente.
 
 ## Convenções
 

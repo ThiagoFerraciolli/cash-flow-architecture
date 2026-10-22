@@ -1,6 +1,5 @@
 # ADR-010 — RabbitMQ local e SQS na AWS
 
-- **Estado:** APROVADO
 - **Direcionadores:** execução local independente de cloud, RNF-001/006/007/014 e facilidade operacional na AWS.
 
 ## Alternativas e decisão

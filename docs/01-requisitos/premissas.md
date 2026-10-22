@@ -1,7 +1,5 @@
 # Premissas e escolhas aprovadas de escopo
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Os PDFs não fornecem todos os detalhes. As escolhas abaixo permitem implementar e testar um escopo fechado; não são apresentadas como requisitos originais do cliente.
-
 | ID | Premissa/decisão aprovada | Consequência |
 |---|---|---|
 | PRE-001 | Fato confirmado deve permanecer recuperável nas falhas de integração | Commit local, backup e RPO de desastre explícito |

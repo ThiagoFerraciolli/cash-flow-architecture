@@ -1,6 +1,5 @@
 # ADR-005 — Idempotência vinculada à identidade financeira
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-006, ASR-004; recuperação após expiração de mensagens e reconstrução.
 
 ## Entrada HTTP

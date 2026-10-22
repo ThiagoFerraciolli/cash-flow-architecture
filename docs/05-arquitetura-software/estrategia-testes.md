@@ -1,118 +1,122 @@
 # Estratégia de Testes
 
+- **Status:** EM REVISÃO FINAL — aguardando validação humana
+
 ## Objetivo
 
-Demonstrar comportamento funcional e, principalmente, os riscos arquiteturais do desafio. A suíte não deve buscar apenas cobertura de linhas.
+Demonstrar requisitos funcionais e riscos arquiteturais, não apenas cobertura. Esta documentação define testes; **nenhum resultado é declarado validado antes de execução real**.
 
 ## 1. Unitários
 
-Transactions:
-- cria Credit válido;
-- cria Debit válido;
-- rejeita amount <= 0;
-- rejeita tipo inválido;
-- mantém cálculo/estado determinístico.
+Transactions: crédito/débito válidos, `amount <= 0`, tipo inválido, derivação determinística de `BusinessDate` e canonicalização/hash de idempotência.
 
-Consolidation:
-- crédito incrementa `TotalCredits`;
-- débito incrementa `TotalDebits`;
-- `Balance = Credits - Debits`;
-- incrementa quantidade;
-- evento repetido não altera projeção quando idempotência é aplicada.
+Consolidation: incrementos de crédito/débito/contagem e `Balance = Credits - Debits`.
 
-## 2. Application tests
+## 2. Application
 
-- `CreateTransaction` persiste lançamento e Outbox na mesma unidade de trabalho;
-- mesma `Idempotency-Key` não cria segundo lançamento;
-- queries respeitam filtros/paginação;
-- aplicação de evento atualiza projeção e processed-event atomicamente.
+- lançamento + idempotência + Outbox na mesma UoW;
+- mesma chave/mesmo payload reproduz resposta sem novo lançamento;
+- mesma chave/payload diferente → conflito;
+- queries/paginação;
+- evento novo aplica projeção; duplicata não reaplica.
 
-## 3. Integração
+## 3. Integração com PostgreSQL real
 
-Preferência: PostgreSQL real em container, evitando substituir semântica relacional por provider in-memory.
+Usar Testcontainers/containers, não provider in-memory para semântica transacional.
 
-Casos:
-- migrations sobem em banco vazio;
-- unique constraints de idempotência;
-- commit/rollback lançamento + Outbox;
-- commit/rollback consolidação + ProcessedEvent;
-- publisher lê mensagens pendentes;
-- redelivery não duplica consolidado.
+Casos: migrations, constraints, rollback das duas unidades transacionais, `SKIP LOCKED`, UPSERT concorrente, precisão decimal, índices principais e limpeza que nunca remove Outbox pendente.
 
-## 4. API
+## 4. API/contrato
 
-- POST válido retorna sucesso e identificador;
-- payload inválido retorna 400;
+- POST sem `Idempotency-Key` → 400;
+- POST válido → 201;
+- replay válido preserva resposta lógica e sinaliza `Idempotent-Replayed`;
+- chave reutilizada com payload diferente → 409;
 - GET existente/inexistente;
-- filtros de listagem;
-- consulta de consolidado por data/período;
+- consolidado de data válida sem movimento → 200 com zeros;
+- intervalo/paginação;
+- erros em `application/problem+json`;
 - health/readiness.
 
-## 5. Teste arquitetural crítico — independência
+Contract tests validam `TransactionCreatedV1`, inclusive `schemaVersion`, decimal textual e `BusinessDate`.
 
-### Objetivo
-
-Validar RNF explícito: indisponibilidade da Consolidação não torna indisponível o controle de lançamentos.
-
-### Procedimento reproduzível
+## 5. Independência — cenário arquitetural obrigatório
 
 1. subir ambiente;
-2. parar API/worker de Consolidação;
-3. manter PostgreSQL de Transactions disponível;
-4. executar `POST /transactions`;
-5. verificar resposta de sucesso;
-6. verificar lançamento persistido;
-7. verificar Outbox pendente/publicável;
-8. religar Consolidação;
-9. aguardar processamento do backlog;
-10. verificar convergência do consolidado.
+2. parar Consolidation API e Worker;
+3. executar novos `POST /transactions`;
+4. verificar sucesso e persistência local;
+5. confirmar que eventos ficam na Outbox/fila conforme estado do Publisher;
+6. religar Consolidação;
+7. aguardar backlog;
+8. verificar convergência e ausência de dupla contabilização.
 
-### Aceite
+Aceite: indisponibilidade da Consolidação não impede lançamento.
 
-O passo 4 não depende da disponibilidade da Consolidação. Após recuperação, o evento pendente deve convergir sem dupla contabilização.
+## 6. Fila indisponível
 
-## 6. Teste de falha do broker
-
-1. indisponibilizar Kafka;
+1. tornar o adaptador/fila indisponível;
 2. registrar lançamento;
-3. confirmar que lançamento + Outbox persistem;
-4. restabelecer Kafka;
-5. publisher entrega pendência;
-6. consolidação converge.
+3. confirmar lançamento + Outbox;
+4. verificar tentativas/backoff sem bloquear API;
+5. restaurar fila;
+6. Publisher entrega pendência;
+7. consolidado converge.
 
-Esse teste distingue disponibilidade do domínio de Lançamentos da disponibilidade do mecanismo assíncrono.
+## 7. Concorrência e idempotência
 
-## 7. Carga — 50 req/s e perda <= 5%
+### POST concorrente
 
-O case informa 50 req/s para o serviço de consolidação, mas não especifica qual operação. Portanto, o teste deve declarar a hipótese em vez de transformar uma interpretação em requisito.
+Disparar duas requisições simultâneas com a mesma chave e payload. Aceite: exatamente um lançamento financeiro; ambas recebem semântica determinística. Repetir com payloads diferentes: um vence e o outro recebe 409.
 
-### Hipótese de teste
+### Publishers concorrentes
 
-Para evidência local, aplicar 50 req/s à leitura `GET /consolidations/{date}`, por ser a operação pública de consulta do consolidado definida no refinamento. O processamento assíncrono será medido separadamente por consumer lag/backlog.
+Executar ao menos duas instâncias capturando o mesmo conjunto de Outbox. Aceite: `SKIP LOCKED` distribui trabalho; eventual duplicação por crash window continua segura no consumidor.
 
-### Métricas
+### Consumers concorrentes
 
-- requests enviados;
-- responses por status;
-- requests sem resposta/erro;
-- taxa de perda/falha observada;
-- latência P50/P95/P99 como observação, sem inventar meta;
-- CPU/memória;
-- consumer lag em teste separado.
+Entregar eventos distintos para a mesma `BusinessDate` em paralelo. Aceite: somas e contagem finais exatas, sem lost update.
 
-### Critério
+### Redelivery
 
-`failed_requests / total_requests <= 0.05` durante a janela definida do ensaio.
+Simular commit do consumidor seguido de falha antes de `DeleteMessage`. Aceite: redelivery não altera novamente a projeção.
 
-Isso é evidência do ambiente local, não certificação de capacidade produtiva.
+## 8. Retry, DLQ e redrive
 
-## 8. Ferramentas
+Produzir mensagem que falha persistentemente. Aceite: após política configurada, mensagem chega à DLQ e métrica/alerta é observável. Corrigir causa e executar redrive; mensagem é processada uma única vez em efeito.
 
-- xUnit para unitários/integração;
-- `WebApplicationFactory` para API;
-- Testcontainers ou containers Docker reais para dependências de integração;
-- k6 para carga reproduzível.
+Os valores de `VisibilityTimeout`, `maxReceiveCount` e backoff usados no teste devem ser registrados como configuração do ensaio, não como requisito produtivo.
 
-## 9. Evidências
+## 9. Reconciliação e reconstrução
 
-Resultados executados devem ser registrados em `docs/08-testes/`, contendo data, ambiente, comando, cenário e resultado. Não marcar requisito como VALIDADO antes da execução real.
+Criar conjunto conhecido de lançamentos e projeção divergente. Rodar reconciliação por `BusinessDate`; ela deve detectar diferenças em contagem/créditos/débitos. Exercitar rebuild controlado a partir de `financial_transactions` e confirmar convergência.
+
+## 10. Carga — 50 req/s e falha <= 5%
+
+O case associa 50 req/s ao serviço de consolidado, mas não identifica inequivocamente a operação. Para evidência do MVP, testar **`GET /consolidations/{date}`** a 50 req/s, pois é a operação pública de consulta do consolidado. Essa é hipótese de ensaio documentada.
+
+Antes da janela medida, fazer warm-up e pré-carregar a data consultada. Durante a janela, não contar respostas HTTP de sucesso como perda. Definir:
+
+`failure_rate = requests_failed_or_without_valid_response / requests_sent`
+
+Critério: `failure_rate <= 0.05` durante a janela estável.
+
+Registrar também P50/P95/P99, CPU/memória e configuração do ambiente, sem inventar meta de latência. Processamento assíncrono é medido separadamente por profundidade/idade da SQS e idade do evento ao consolidar.
+
+Executar adicionalmente um ensaio de escrita/backlog para observar comportamento dos Workers, mas não apresentá-lo como interpretação oficial do requisito de 50 req/s.
+
+## 11. Segurança mínima
+
+Testar validação de entrada, ausência de segredos em configuração versionada/logs, autenticação 401 e autorização 403 quando o modo de segurança estiver habilitado. Na AWS, IAM mínimo é validado por revisão/IaC quando existir implementação.
+
+## 12. Observabilidade
+
+Em cenários de falha, confirmar presença de correlação/traces e métricas: Outbox pendente/idade, tentativas do Publisher, profundidade/idade da fila, DLQ e falhas/tempo do consumidor.
+
+## 13. Ferramentas
+
+xUnit, `WebApplicationFactory`, Testcontainers/Docker e k6. Testes E2E pertencem a projeto próprio porque cruzam os dois serviços.
+
+## 14. Evidências
+
+Resultados futuros devem ir para `docs/08-testes/` com data, commit, ambiente, comando/script, configuração, duração, métricas e resultado. Matrizes só mudam para `VALIDADO` após evidência executada.

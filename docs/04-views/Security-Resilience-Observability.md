@@ -1,92 +1,84 @@
 # Security, Resilience e Observability Views
 
-- **Status:** PROPOSTO PARA VALIDAÇÃO
+- **Status:** EM REVISÃO FINAL — aguardando validação humana
 
 ## 1. Security View
 
 ### Local/MVP
 
-- nenhum segredo real versionado;
-- configuração por environment/secrets;
-- autenticação técnica simples poderá ser usada para demonstração, documentada no SDD;
-- validação de entrada e tratamento seguro de erros;
-- containers/bancos sem exposição pública desnecessária.
+Sem segredos reais versionados; configuração externalizada; validação de entrada; autenticação de desenvolvimento opcional e claramente identificada; bancos/filas não expostos desnecessariamente; erros não retornam detalhes internos.
 
 ### Arquitetura-alvo
 
 ```mermaid
 flowchart LR
-    U[Consumidor] -->|TLS| EDGE[WAF / API ingress]
-    EDGE --> T[Transactions]
-    EDGE --> C[Consolidation]
-    IDP[IdP OAuth2/OIDC] -. tokens/policies .-> EDGE
-    T -->|private network + TLS| TDB[(Transactions DB)]
-    C -->|private network + TLS| CDB[(Consolidation DB)]
-    T -. IAM/least privilege .-> SEC[Secrets / KMS]
-    C -. IAM/least privilege .-> SEC
+    U[Consumidor] -->|TLS| ALB[ALB / ingress]
+    ALB --> TA[Transactions API]
+    ALB --> CA[Consolidation API]
+    IDP[IdP OAuth2/OIDC] -. tokens .-> ALB
+    TA --> TDB[(Transactions DB privado)]
+    TW[Transactions Worker] --> TDB
+    TW --> Q[SQS]
+    Q --> CW[Consolidation Worker]
+    CW --> CDB[(Consolidation DB privado)]
+    CA --> CDB
+    SEC[Secrets Manager / KMS] -. least privilege .-> TA
+    SEC -.-> TW
+    SEC -.-> CA
+    SEC -.-> CW
 ```
 
-Critérios:
-- TLS em trânsito e criptografia em repouso;
-- workloads e bancos em rede privada quando aplicável;
-- least privilege via IAM/workload identity;
-- segredos em serviço de secret management;
-- OAuth2/OIDC conforme padrão corporativo, sem inventar RBAC de negócio;
-- logs não devem expor payload financeiro sensível ou segredos;
-- trilha/correlation ID para diagnóstico e auditoria técnica.
+Critérios: TLS externo; criptografia em repouso; IAM Task Roles separados; Publisher somente envia à fila; Consumer recebe/remove/ajusta visibilidade; redrive administrativo separado quando possível; Secrets Manager/KMS; OAuth2/OIDC/JWT quando IdP for definido; sem RBAC de negócio inventado; logs não contêm token, segredo ou descrição financeira desnecessária.
 
-LGPD/compliance específicos permanecem questão em aberto porque o case não fornece classificação de dados nem obrigações regulatórias.
+LGPD/compliance específicos dependem da classificação de dados ausente no case.
 
 ## 2. Resilience View
 
 | Falha | Comportamento esperado |
 |---|---|
-| Consolidation API/worker indisponível | Transactions continua registrando; consolidado pode ficar stale |
-| Broker indisponível | lançamento é confirmado após commit local; Outbox mantém intenção de publicação |
-| Outbox Publisher reinicia | retoma itens pendentes; duplicatas são toleradas |
-| Evento entregue mais de uma vez | `ProcessedEvent` impede dupla contabilização |
-| Evento inválido/falha persistente | retry limitado + isolamento/DLQ; alerta e diagnóstico |
-| Transactions DB indisponível | não confirmar lançamento que não foi persistido |
-| Consolidation DB indisponível | consumo falha/retry; Transactions não é afetado |
+| Consolidation API/Worker indisponível | Transactions continua; SQS acumula backlog |
+| SQS indisponível | lançamento confirma localmente; Outbox permanece pendente |
+| Transactions Worker reinicia | retoma Outbox; duplicata é tolerada |
+| falha após SendMessage | possível republicação, absorvida por idempotência |
+| evento redelivered | `ProcessedEvent` impede dupla contabilização |
+| falha transitória no consumo | sem DeleteMessage; nova entrega após visibility timeout |
+| falha persistente | DLQ por redrive policy + alerta + runbook |
+| Transactions DB indisponível | lançamento não é confirmado |
+| Consolidation DB indisponível | consumo falha; Transactions não é afetado |
+| divergência silenciosa | reconciliação detecta e rebuild parte de Transactions |
 
-Retries devem usar backoff e jitter e possuir limite. Retry infinito sem isolamento não é aceitável.
-
-Não declaramos RTO/RPO/SLA sem requisitos. Backups/PITR, Multi-AZ e capacidade redundante são capacidades da arquitetura-alvo a serem dimensionadas conforme objetivos definidos.
+Retries usam backoff/jitter e limites configurados. Retry infinito sem isolamento não é aceitável. SLA/RTO/RPO, Multi-AZ e DR dependem de objetivos não fornecidos.
 
 ## 3. Observability View
 
-### Métricas
+### APIs
 
-**Transactions**
-- request rate/error rate/latency;
-- taxa de criação de lançamentos;
-- quantidade e idade do Outbox pendente;
-- falhas/retries de publicação.
+Request rate, error rate, latência, status, health/readiness e saturação.
 
-**Integration**
-- publish rate/error;
-- consumer lag/backlog;
-- retries;
-- mensagens isoladas/DLQ.
+### Transactions Worker / Outbox
 
-**Consolidation**
-- processamento por segundo;
-- erros/retries;
-- freshness do consolidado;
-- latência e taxa de erro das consultas.
+Quantidade pendente, idade do item mais antigo, publish rate/error, tentativas, tempo até publicação e limpeza.
+
+### SQS/DLQ
+
+`ApproximateNumberOfMessagesVisible`, `ApproximateAgeOfOldestMessage`, mensagens em voo, taxa de recebimento/remoção e DLQ > 0. Não usar terminologia de `consumer lag`/offset Kafka na arquitetura atual.
+
+### Consolidation Worker
+
+Taxa/erro/tempo de processamento, redelivery, duplicatas detectadas e idade do evento ao ser consolidado.
+
+### Consolidation API
+
+Taxa/erro/latência. `lastUpdatedAt` auxilia diagnóstico, mas não mede sozinho se existe backlog; a defasagem operacional vem dos sinais da Outbox/fila/event age.
 
 ### Logs e traces
 
-- logs estruturados;
-- `correlationId`, `transactionId` e `eventId` quando aplicáveis;
-- trace do request de criação até a publicação/processamento assíncrono;
-- sanitização de dados sensíveis;
-- timestamps consistentes.
+Logs estruturados com `correlationId`, `transactionId` e `eventId` quando aplicáveis. W3C trace context deve atravessar request, Outbox e atributos SQS. Sanitização de payloads e timestamps UTC.
 
-### Alertas
+## 4. Alertas
 
-Thresholds numéricos dependem de SLOs não fornecidos. Mesmo assim, devem existir alertas baseados em sintomas como crescimento contínuo do Outbox, consumer lag crescente, falhas persistentes, indisponibilidade de dependências e freshness acima do objetivo que vier a ser definido.
+Sem SLOs não há thresholds produtivos responsáveis. Devem existir alertas parametrizáveis para: Outbox crescendo/envelhecendo, falhas persistentes de publicação, idade/profundidade da fila acima do objetivo definido, DLQ não vazia, erros sustentados e indisponibilidade de banco/processos.
 
-## 4. Evidência obrigatória futura
+## 5. Evidência futura
 
-O ambiente executável deverá permitir desligar a Consolidação, registrar lançamentos com sucesso, religar o processamento e comprovar convergência sem dupla contabilização. Essa evidência conecta resiliência, observabilidade, Outbox e idempotência ao RNF principal do case.
+Testes precisam desligar Consolidação, falhar SQS, provocar redelivery/DLQ e concorrência, e então demonstrar recuperação/reconciliação sem dupla contabilização. A evidência deve mostrar também que os sinais acima permitem diagnosticar cada cenário.

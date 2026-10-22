@@ -1,39 +1,31 @@
 # ADR-006 — AWS como referência e ECS/Fargate para workloads
 
-- **Status:** PROPOSTO
+- **Status:** ACEITO PARA A ARQUITETURA DO DESAFIO
+- **Drivers:** RNF-008, RNF-010, RNF-012, RNF-013, ASR-008, ASR-009
 
 ## Contexto
 
-A solução precisa apresentar arquitetura-alvo, segurança, observabilidade, escalabilidade e estimativa de infraestrutura. O desafio não exige uma cloud específica nem Kubernetes.
+A entrega precisa demonstrar arquitetura-alvo, segurança, observabilidade, escalabilidade e custos. O desafio não exige cloud específica nem Kubernetes.
 
 ## Alternativas
 
-### Kubernetes/EKS
-Prós: ecossistema amplo, portabilidade e controles avançados.
-Contras: custo e complexidade operacional sem requisito que os justifique neste case.
+**EKS/Kubernetes:** flexível, mas adiciona plataforma/cluster sem requisito que o justifique.  
+**ECS/Fargate:** containers, escala/deploy independente e operação reduzida.  
+**Functions:** válidas para outros perfis, porém mudariam desnecessariamente o modelo de APIs/workers do desafio.
 
-### ECS/Fargate
-Prós: containers, scale-out, deployments independentes, integração AWS e ausência de gestão de nós.
-Contras: maior acoplamento operacional à AWS e menos portabilidade da camada de orquestração.
+## Decisão
 
-### Serverless functions
-Prós: escala por demanda e operação reduzida.
-Contras: muda o modelo de execução dos workers/APIs e não traz benefício necessário para demonstrar o desenho pedido.
+Usar **AWS como referência documental** e **ECS/Fargate** para os quatro processos: Transactions API, Transactions Worker, Consolidation API e Consolidation Worker.
 
-## Decisão proposta
-
-Usar **AWS como cloud de referência documental** e **ECS/Fargate** para executar APIs e workers containerizados.
-
-A escolha não significa que a solução depende conceitualmente da AWS: contratos HTTP/eventos, PostgreSQL, Kafka e OpenTelemetry preservam portabilidade nas principais fronteiras.
+RDS PostgreSQL atende persistência; SQS Standard + DLQ atende integração conforme ADR-007; ALB atende entrada HTTP; ECR, Secrets Manager/KMS, CloudWatch e OpenTelemetry completam as capacidades de plataforma.
 
 ## Consequências
 
-- cada serviço escala e é implantado independentemente;
+- 2 serviços de negócio continuam existindo, apesar de 4 tasks/processos;
+- escala é independente por processo;
 - não há cluster Kubernetes para operar;
-- sizing é definido por task CPU/memória;
-- custos podem ser estimados diretamente por recursos solicitados;
-- eventual exigência corporativa por Kubernetes permitiria remapear containers para EKS sem alterar domínios/contratos.
+- IAM Task Roles permitem menor privilégio;
+- custos são orientados a recursos/uso e precisam incluir rede/observabilidade;
+- eventual padrão corporativo Kubernetes permite remapeamento sem alterar domínio/contratos.
 
-## Relação com requisitos
-
-Atende principalmente RNF-008, RNF-010, RNF-012, RNF-013 e ASR-008/009. Não cria SLA/RTO/RPO não fornecidos.
+Não são criados SLA, RTO, RPO, Multi-AZ ou cross-region como requisitos. Esses itens dependem de objetivos produtivos ausentes.

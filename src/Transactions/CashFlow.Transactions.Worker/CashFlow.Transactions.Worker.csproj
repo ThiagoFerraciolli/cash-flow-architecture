@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../CashFlow.Transactions.Application/CashFlow.Transactions.Application.csproj" />
+    <ProjectReference Include="../CashFlow.Transactions.Infrastructure/CashFlow.Transactions.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

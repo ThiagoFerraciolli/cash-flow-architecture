@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "cashflow.transactions.application": {
+        "type": "Project",
+        "dependencies": {
+          "CashFlow.Transactions.Domain": "[1.0.0, )"
+        }
+      },
+      "cashflow.transactions.domain": {
+        "type": "Project"
+      }
+    }
+  }
+}

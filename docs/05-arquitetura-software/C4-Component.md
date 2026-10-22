@@ -1,68 +1,72 @@
 # C4 — Component View
 
-## Transactions Service
+- **Status:** EM REVISÃO FINAL — aguardando validação humana
+
+## Serviço de Lançamentos
+
+Dois processos executam componentes do mesmo serviço.
 
 ```mermaid
 flowchart LR
   Client[Cliente] --> API[Transactions API]
-  API --> Create[CreateTransaction Use Case]
+  API --> Create[CreateTransaction]
   API --> Query[Query Use Cases]
-  Create --> Domain[FinancialTransaction Domain]
-  Create --> Repo[ITransactionRepository]
-  Create --> Uow[IUnitOfWork]
-  Repo --> Db[(Transactions PostgreSQL)]
-  Uow --> Db
-  Create --> Outbox[OutboxMessage]
+  Create --> Domain[FinancialTransaction]
+  Create --> Idem[Idempotency Store Port]
+  Create --> Repo[Transaction Repository]
+  Create --> Outbox[Outbox Store Port]
+  Idem --> Db[(Transactions PostgreSQL)]
+  Repo --> Db
   Outbox --> Db
-  Publisher[Outbox Publisher] --> Db
-  Publisher --> Kafka[(Kafka)]
+  Worker[Transactions Worker] --> Claim[Outbox Claim/Retry]
+  Claim --> Db
+  Worker --> Pub[Message Publisher Port]
+  Pub --> Q[SQS Standard]
 ```
 
-### Responsabilidades
+O boundary transacional de `CreateTransaction` inclui lançamento, idempotência e Outbox. O Worker não participa da resposta HTTP. Publishers concorrentes capturam pendências de forma segura (`SKIP LOCKED` ou equivalente).
 
-- **API**: protocolo HTTP, validação de formato e status codes;
-- **Application**: coordenação do caso de uso e boundary transacional;
-- **Domain**: invariantes financeiras do escopo;
-- **Repository/DbContext**: persistência;
-- **Outbox Publisher**: entrega assíncrona recuperável ao broker.
-
-O publisher não faz parte do caminho síncrono de confirmação do lançamento.
-
-## Consolidation Service
+## Serviço de Consolidação
 
 ```mermaid
 flowchart LR
-  Kafka[(Kafka)] --> Consumer[TransactionCreated Consumer]
-  Consumer --> Apply[ApplyTransactionCreated Use Case]
-  Apply --> Domain[DailyConsolidation Domain]
-  Apply --> Repo[IConsolidationRepository]
-  Apply --> Processed[ProcessedEvent Store]
-  Repo --> Db[(Consolidation PostgreSQL)]
-  Processed --> Db
+  Q[SQS Standard] --> Worker[Consolidation Worker]
+  Worker --> Consumer[TransactionCreatedV1 Handler]
+  Consumer --> Dedup[ProcessedEvent Store]
+  Consumer --> Apply[Apply Consolidation]
+  Dedup --> Db[(Consolidation PostgreSQL)]
+  Apply --> Db
   Client[Cliente] --> API[Consolidation API]
-  API --> Query[Consolidation Query Use Cases]
-  Query --> Repo
+  API --> Query[Consolidation Queries]
+  Query --> Db
 ```
 
-### Boundary transacional
+`ProcessedEvent` e UPSERT relativo da projeção pertencem ao mesmo commit. `DeleteMessage` ocorre somente depois desse commit.
 
-Para cada evento, atualização de `DailyConsolidation` e registro de `ProcessedEvent` pertencem ao mesmo commit local. O offset do broker não deve ser confirmado antes desse commit.
+## Componentes transversais
+
+- `CashFlow.Contracts`: contratos de integração versionados, sem entidades de domínio;
+- clock/time-zone abstraction: permite derivar/testar `BusinessDate` deterministicamente;
+- OpenTelemetry instrumentation: HTTP, banco e mensageria;
+- Problem Details: erros HTTP consistentes;
+- configuração: retry, retenções e parâmetros operacionais externalizados.
 
 ## Dependências permitidas
 
 ```text
-Api ------------> Application ---> Domain
-Infrastructure -> Application
-Infrastructure -> Domain (mapeamento/implementação quando necessário)
-Contracts ------> somente boundaries de integração
+Api/Worker ------> Application ---> Domain
+Infrastructure --> Application
+Infrastructure --> Domain (mapeamento estritamente necessário)
+Contracts -------> boundaries de integração
 ```
 
-`Domain` não referencia `Infrastructure`, `Api`, EF Core ou Kafka.
+Domain não referencia ASP.NET Core, EF Core, SDK AWS ou PostgreSQL. Application depende de portas, não do broker concreto.
 
-## Relação com os requisitos
+## Rastreabilidade
 
-- RNF-001/ASR-001: publisher/consumer desacoplados do POST de lançamento;
-- RNF-004/ASR-002: commit local antes da confirmação ao cliente;
-- RNF-006/ASR-004: idempotência na API e consumer;
-- RNF-007/ASR-005: Outbox + backlog recuperável;
-- RNF-009/ASR-009: componentes instrumentáveis de forma independente.
+- independência: API confirma por commit local; Workers são assíncronos;
+- confiabilidade: Outbox + SQS + DLQ;
+- idempotência: registro HTTP + `ProcessedEvent`;
+- concorrência: unicidade, `SKIP LOCKED`, UPSERT atômico;
+- recuperação: retry/redrive/reconciliação;
+- observabilidade: componentes e processos instrumentados independentemente.

@@ -2,20 +2,21 @@
 
 ## Objetivo
 
-Premissas são hipóteses adotadas temporariamente quando o desafio não fornece informação suficiente para concluir uma regra de negócio ou atributo de qualidade. Elas não são requisitos confirmados nem decisões arquiteturais.
-
-Tecnologias, padrões, estilo arquitetural e serviços de infraestrutura não são definidos neste documento. Essas escolhas devem ser justificadas posteriormente por ADRs, a partir dos requisitos, ASRs, alternativas e trade-offs.
+Premissas são hipóteses temporárias onde o desafio não fornece informação suficiente. Não são requisitos confirmados. Tecnologias e padrões são decididos em ADRs.
 
 | ID | Premissa | Motivo | Validação futura |
 |---|---|---|---|
-| PRE-001 | Um lançamento que recebeu confirmação de sucesso não deve ser permanentemente perdido. | O desafio trata dados financeiros e exige confiabilidade, embora não defina RPO. | Validar RPO formal e estratégia de recuperação. |
-| PRE-002 | Os lançamentos constituem a informação financeira primária e o consolidado diário é informação derivada desses lançamentos. | O problema descreve lançamentos e um relatório de saldo diário consolidado. | Validar com stakeholders de negócio. |
-| PRE-003 | O consolidado pode apresentar defasagem temporária em relação aos lançamentos, desde que posteriormente convirja sem perda ou dupla contabilização. | O serviço de lançamentos deve permanecer disponível quando a consolidação estiver indisponível. | Validar a janela máxima aceitável de defasagem. |
-| PRE-004 | Reprocessamentos e tentativas repetidas não devem alterar o resultado financeiro mais de uma vez. | Falhas e recuperação podem provocar repetição de operações ou processamento. | Validar critérios de idempotência por operação. |
-| PRE-005 | Lançamentos confirmados serão tratados como imutáveis no MVP. Correções, quando necessárias, deverão ser modeladas posteriormente por regra explícita de negócio. | O desafio não define edição, exclusão ou estorno de lançamentos. | Definir política de correção/estorno. |
-| PRE-006 | A tolerância de até 5% de perda citada no desafio não autoriza perda permanente de lançamentos já confirmados. | Evita interpretar uma meta de requisições do consolidado como permissão para perda financeira. | Confirmar a semântica da métrica com stakeholders. |
-| PRE-007 | Para fins do MVP, será considerada uma única moeda e um único calendário financeiro, sem regra de fechamento definida. | O desafio não especifica multi-moeda, timezone ou fechamento. | Definir moeda, timezone e regras de fechamento. |
+| PRE-001 | Lançamento confirmado não deve ser permanentemente perdido. | Dados financeiros e confiabilidade, embora RPO não esteja definido. | Validar RPO e recuperação. |
+| PRE-002 | Lançamentos são a informação financeira primária; consolidado diário é derivado. | O problema descreve fatos e relatório diário. | Validar com negócio. |
+| PRE-003 | Consolidado pode ficar temporariamente defasado, mas deve convergir sem perda/duplicidade. | Lançamentos precisa sobreviver à indisponibilidade da Consolidação. | Validar janela máxima. |
+| PRE-004 | Retries/reprocessamentos não podem produzir efeito financeiro adicional. | At-least-once e falhas geram repetição. | Validar idempotência. |
+| PRE-005 | Lançamentos confirmados são imutáveis no MVP. | Não há edição/exclusão/estorno no enunciado. | Definir política futura. |
+| PRE-006 | A tolerância de até 5% de falha/perda de requisições do consolidado não autoriza perda permanente de lançamento confirmado. | Evita interpretação perigosa do RNF de carga. | Confirmar métrica. |
+| PRE-007 | MVP considera uma única moeda; multi-moeda não é modelada. | Moeda não é especificada. | Confirmar moeda/regras. |
+| PRE-008 | Para a demonstração, `BusinessDate` é derivado de `OccurredAt` usando um fuso configurável único; não existe fechamento intradiário. | O desafio pede consolidado diário mas não define timezone/fechamento. Calcular uma vez evita divergência entre serviços. | Validar timezone, calendário e fechamento com negócio. |
+| PRE-009 | `GET /consolidations/{date}` para data válida sem lançamentos retorna consolidado zero. | Permite representar semanticamente “sem movimento” e torna consulta/carga determinística; o enunciado não define 404 nesse caso. | Validar contrato de consulta. |
+| PRE-010 | Janelas de idempotência, retenção de Outbox/ProcessedEvent, visibility timeout e limites de retry são configurações técnicas do MVP. | Valores produtivos dependem de SLA/volume/operabilidade ausentes. | Definir com SLOs e operação. |
 
-## Regra de governança
+## Governança
 
-Cada premissa deverá, quando houver informação suficiente, ser confirmada como requisito, substituída por uma regra validada ou removida. Decisões arquiteturais decorrentes dessas premissas deverão ser registradas separadamente em ADR.
+Cada premissa deve ser confirmada, substituída ou removida quando houver informação de negócio. Nenhuma premissa deve ser apresentada como requisito original dos desafios.

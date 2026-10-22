@@ -17,7 +17,7 @@ Estados: **DOCUMENTADO** (especificado), **PENDENTE DE IMPLEMENTAÇÃO**, **PEND
 | Implementação C# | Software | `src/` futuro | PENDENTE DE IMPLEMENTAÇÃO |
 | Testes automatizados | Ambos | estratégia + código futuro | DOCUMENTADO / PENDENTE DE IMPLEMENTAÇÃO |
 | Evidências executadas | Ambos | `docs/08-testes/` futuro | PENDENTE DE EVIDÊNCIA |
-| README/execução local | Ambos | README futuro | PENDENTE — revisão documental ainda não encerrada |
+| README/índice | Ambos | `README.md` | DOCUMENTADO; comandos de execução aguardam implementação real |
 | Repositório público | Ambos | GitHub | ATENDIDO |
 | Documentação versionada | Ambos | `docs/` | ATENDIDO |
 | Independência da Consolidação | Ambos | ADR-001/002/004 + fault test | DOCUMENTADO / PENDENTE DE EVIDÊNCIA |
@@ -43,4 +43,4 @@ SLA/SLO, RTO/RPO, DR, região produtiva, volume diário/crescimento, retenções
 
 ## Gate
 
-Nenhuma implementação, PR ou afirmação de conclusão decorre desta matriz. A documentação só muda para “pronta para validação humana” após revisão transversal completa e uma segunda passagem independente sob as perspectivas de Solutions Architect e Software Architect. Itens dependentes de código permanecem pendentes mesmo após aprovação documental.
+A documentação pode ficar pronta para validação humana sem transformar itens de código/teste em atendidos. Implementação, PR e merge permanecem fora desta revisão. Evidências dependentes de execução continuam pendentes até existirem resultados reais.

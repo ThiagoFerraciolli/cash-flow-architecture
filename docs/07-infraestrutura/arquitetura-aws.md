@@ -1,117 +1,102 @@
 # Arquitetura-alvo na AWS
 
-- **Status:** ARQUITETURA-ALVO DOCUMENTADA
-- **Objetivo:** mapear as capacidades da arquitetura lógica para serviços AWS sem alterar os requisitos do desafio.
+- **Status:** EM REVISÃO FINAL — aguardando validação humana
+- **Objetivo:** mapear a arquitetura lógica para AWS com simplicidade, isolamento e rastreabilidade aos requisitos.
 
 ## 1. Região de referência
 
-Para tornar a estimativa de custos reproduzível, adota-se **us-east-1 (Norte da Virgínia)** como região de referência. Essa escolha é somente uma premissa de cálculo, não um requisito de negócio.
+`us-east-1` é usada apenas para estimativas. Região produtiva depende de residência de dados, latência, regulação e estratégia corporativa.
 
-A região de produção deverá ser validada conforme residência de dados, latência, requisitos regulatórios e estratégia corporativa.
+## 2. Mapeamento
 
-## 2. Mapeamento da arquitetura lógica
-
-| Capacidade | Serviço AWS de referência | Justificativa |
+| Capacidade | Serviço AWS | Justificativa |
 |---|---|---|
-| Entrada HTTPS e balanceamento | Application Load Balancer (ALB) | entrada HTTPS, distribuição das requisições e verificações de saúde |
-| Serviço de Lançamentos | Amazon ECS com AWS Fargate | contêineres sem administração de servidores e escala horizontal independente |
-| API de Consolidação | Amazon ECS com AWS Fargate | mesma plataforma operacional com escala independente |
-| Publicador da Outbox | Amazon ECS com AWS Fargate | processamento independente do caminho síncrono da API |
-| Consumidor de Consolidação | Amazon ECS com AWS Fargate | processamento assíncrono e escala independente |
-| Registro de imagens | Amazon ECR | armazenamento gerenciado das imagens de contêiner |
-| Persistência de Lançamentos | Amazon RDS for PostgreSQL | banco relacional gerenciado e transacional |
-| Persistência de Consolidação | Amazon RDS for PostgreSQL | propriedade de dados independente entre contextos |
-| Fluxo de eventos | Amazon MSK (Kafka) | preserva a decisão de retenção, reprocessamento e recuperação de backlog do ADR-002 |
-| Segredos | AWS Secrets Manager | externalização de credenciais e suporte à rotação |
-| Chaves criptográficas | AWS KMS | gerenciamento de chaves para criptografia quando aplicável |
-| Logs e métricas | Amazon CloudWatch | integração nativa com os serviços AWS |
-| Rastreamento distribuído | OpenTelemetry + CloudWatch | instrumentação padronizada e portável |
+| entrada HTTPS | Application Load Balancer | TLS, health checks e balanceamento para as APIs |
+| Transactions API | ECS/Fargate | processo stateless e escala independente |
+| Transactions Worker | ECS/Fargate | Outbox Publisher fora do caminho HTTP |
+| Consolidation API | ECS/Fargate | leitura e escala independente |
+| Consolidation Worker | ECS/Fargate | consumo assíncrono independente |
+| imagens | ECR | registro gerenciado |
+| dados de Lançamentos | RDS PostgreSQL | atomicidade de lançamento/idempotência/Outbox |
+| dados de Consolidação | RDS PostgreSQL | projeção e deduplicação com ownership separado |
+| integração | SQS Standard | desacoplamento, backlog, redelivery e baixo overhead |
+| mensagens problemáticas | SQS DLQ | isolamento e redrive operacional |
+| segredos | Secrets Manager | externalização/rotação |
+| chaves | KMS | criptografia gerenciada |
+| logs/métricas | CloudWatch | integração AWS |
+| traces | OpenTelemetry + destino compatível | instrumentação portável |
 
-## 3. Visão de implantação
+## 3. Implantação
 
 ```mermaid
 flowchart TB
     U[Consumidor] --> ALB[Application Load Balancer]
-    ALB --> T[ECS/Fargate\nServiço de Lançamentos]
-    ALB --> C[ECS/Fargate\nAPI de Consolidação]
+    ALB --> TA[ECS/Fargate\nTransactions API]
+    ALB --> CA[ECS/Fargate\nConsolidation API]
 
-    T --> TDB[(RDS PostgreSQL\nLançamentos)]
-    TDB --> OP[ECS/Fargate\nPublicador da Outbox]
-    OP --> MSK[(Amazon MSK / Kafka)]
-    MSK --> CC[ECS/Fargate\nConsumidor de Consolidação]
-    CC --> CDB[(RDS PostgreSQL\nConsolidação)]
-    C --> CDB
+    TA --> TDB[(RDS PostgreSQL\nTransactions)]
+    TW[ECS/Fargate\nTransactions Worker] --> TDB
+    TW --> Q[SQS Standard]
+    Q --> CW[ECS/Fargate\nConsolidation Worker]
+    Q -. redrive .-> D[SQS DLQ]
+    CW --> CDB[(RDS PostgreSQL\nConsolidation)]
+    CA --> CDB
 
-    SM[Secrets Manager / KMS] -.-> T
-    SM -.-> C
-    SM -.-> OP
-    SM -.-> CC
-    CW[CloudWatch / OpenTelemetry] -.-> T
-    CW -.-> C
-    CW -.-> OP
-    CW -.-> CC
+    SM[Secrets Manager / KMS] -.-> TA
+    SM -.-> TW
+    SM -.-> CA
+    SM -.-> CW
+    OBS[CloudWatch / OpenTelemetry] -.-> TA
+    OBS -.-> TW
+    OBS -.-> CA
+    OBS -.-> CW
 ```
 
-## 4. Disponibilidade e isolamento
+São **2 serviços de negócio / 4 processos executáveis**, não quatro microsserviços.
 
-A arquitetura permite distribuir tarefas dos serviços entre **Zonas de Disponibilidade (Availability Zones — AZs)** e configurar os bancos de acordo com a disponibilidade necessária.
+## 4. Rede e segurança
 
-O desafio, porém, **não fornece SLA, RTO ou RPO**. Por isso, Multi-AZ, quantidade fixa de réplicas e recuperação entre regiões não são apresentados como requisitos obrigatórios.
+- ALB é o único componente público quando exposição externa for necessária;
+- tasks ficam em subnets privadas; RDS não possui endpoint público;
+- acesso à SQS preferencialmente por VPC endpoint quando custo/topologia justificarem; caso contrário, egress controlado deve ser explicitado;
+- Security Groups permitem apenas fluxos necessários;
+- IAM Task Roles separados por processo e menor privilégio;
+- Transactions Worker: `sqs:SendMessage` na fila principal;
+- Consolidation Worker: permissões de receive/delete/change-visibility na fila principal; redrive administrativo separado do runtime quando possível;
+- Secrets Manager/KMS sem credenciais no código;
+- TLS externo e criptografia em repouso;
+- OAuth2/OIDC/JWT no boundary HTTP quando o IdP corporativo for definido.
 
-A independência exigida pelo desafio é preservada pela separação dos serviços e de suas persistências: uma falha na Consolidação não deve impedir que o Serviço de Lançamentos confirme novas transações válidas.
+O case não fornece RBAC de negócio, portanto perfis não são inventados.
 
-Na estimativa de custos são apresentados cenários com premissas explícitas para permitir comparação econômica sem transformar essas hipóteses em requisitos.
+## 5. Disponibilidade e escala
 
-## 5. ECS/Fargate versus EKS
+O requisito explícito é independência da Consolidação. A topologia permite escala horizontal dos quatro processos e isolamento dos bancos. Multi-AZ, quantidade mínima de réplicas, RTO/RPO e cross-region dependem de objetivos não fornecidos.
 
-EKS não agrega benefício proporcional ao escopo atual. Existem poucos componentes executáveis, não há requisito de Kubernetes e o objetivo é demonstrar isolamento, escalabilidade e operação da solução.
+Autoscaling pode usar CPU/memória nas APIs e idade/profundidade da fila nos workers. Limiares são definidos após teste/observação, não arbitrariamente como requisitos.
 
-ECS/Fargate reduz a sobrecarga operacional de plataforma e atende aos requisitos de contêineres, escala horizontal e implantações independentes. A decisão está formalizada no ADR-006.
+## 6. ECS/Fargate versus EKS
 
-## 6. Kafka/MSK versus fila gerenciada
+ECS/Fargate é suficiente para quatro processos containerizados e reduz operação. EKS só seria reavaliado por padrão corporativo, escala/plataforma compartilhada ou capacidades Kubernetes realmente necessárias.
 
-Kafka foi escolhido arquiteturalmente por retenção de eventos, reprocessamento e recuperação de backlog. O requisito de 50 req/s, isoladamente, **não justifica Kafka**.
+## 7. SQS versus Kafka/MSK
 
-Uma alternativa como Amazon SQS possui menor complexidade operacional e pode apresentar custo inferior quando o requisito for apenas entrega assíncrona confiável. A comparação e suas consequências estão registradas no ADR-007 e na estimativa de custos.
+ADR-007 seleciona SQS Standard porque os requisitos atuais pedem desacoplamento, recuperação e tratamento de falhas, não event streaming/replay histórico. Kafka/MSK permanece alternativa futura, não componente da arquitetura-alvo atual.
 
-## 7. Ambiente local → arquitetura-alvo
+## 8. Local → AWS
 
-| Ambiente local | Arquitetura-alvo AWS |
+| Local | AWS |
 |---|---|
-| contêineres Docker | Amazon ECS + AWS Fargate |
-| PostgreSQL em contêiner | Amazon RDS for PostgreSQL |
-| Kafka em contêiner | Amazon MSK |
-| variáveis e segredos locais | AWS Secrets Manager / AWS KMS |
-| logs, métricas e rastreamento locais | Amazon CloudWatch + OpenTelemetry |
+| Docker containers | ECS/Fargate |
+| PostgreSQL (databases separados) | RDS PostgreSQL com ownership separado |
+| broker/fila compatível com semântica at-least-once | SQS Standard + DLQ |
+| configuração/secrets de desenvolvimento | Secrets Manager/KMS |
+| logs/métricas/traces locais | CloudWatch + OpenTelemetry |
 
-O ambiente local não pretende reproduzir alta disponibilidade de nuvem. Ele deve reproduzir contratos, persistência, integração, falhas e comportamento verificável.
+## 9. Observabilidade
 
-## 8. Segurança da infraestrutura
-
-Na arquitetura-alvo:
-
-- tráfego externo utiliza HTTPS/TLS;
-- bancos e broker não são expostos diretamente à Internet;
-- grupos de segurança restringem comunicação aos componentes necessários;
-- credenciais e segredos ficam fora do código-fonte;
-- permissões dos componentes seguem o princípio do menor privilégio;
-- criptografia em repouso utiliza os recursos dos serviços gerenciados e KMS quando aplicável;
-- autenticação/autorização do consumidor da API deverá seguir o provedor de identidade corporativo quando este for conhecido.
-
-## 9. Observabilidade operacional
-
-A infraestrutura deverá permitir observar, no mínimo:
-
-- taxa, erros e latência das APIs;
-- saúde e prontidão dos componentes;
-- quantidade e idade dos registros pendentes na Outbox;
-- atraso do consumidor e tamanho do backlog;
-- falhas e tentativas de reprocessamento;
-- defasagem do consolidado;
-- correlação entre requisição, lançamento, evento e consolidação.
-
-Limiares de alerta dependem dos SLOs/SLA produtivos ainda não informados.
+Além de taxa/erro/latência das APIs: Outbox pendente e idade mais antiga, falhas/tentativas do Publisher, `ApproximateNumberOfMessagesVisible`, `ApproximateAgeOfOldestMessage`, DLQ > 0, falhas de consumo e idade do evento ao ser consolidado. Correlation/trace context atravessa HTTP, Outbox e atributos da mensagem.
 
 ## 10. Custos
 
-A composição de custos, as hipóteses de dimensionamento, os valores unitários e os totais mensais são mantidos separadamente em `estimativa-custos.md`, evitando misturar decisão de implantação com cálculo financeiro.
+`estimativa-custos.md` usa SQS como baseline e trata MSK apenas como comparação de sensibilidade. NAT Gateway, VPC endpoints, WAF e outros itens condicionais precisam ser explicitados quando incluídos/excluídos para evitar custo oculto.

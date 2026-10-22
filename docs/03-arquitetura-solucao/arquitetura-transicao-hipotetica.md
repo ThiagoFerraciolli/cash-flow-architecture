@@ -1,79 +1,51 @@
 # Arquitetura de Transição — Cenário Hipotético
 
 - **Classificação:** DIFERENCIAL do desafio de Solutions Architect
-- **Status:** HIPÓTESE DOCUMENTAL — não é requisito informado pelo enunciado
+- **Status:** HIPÓTESE DOCUMENTAL — não é requisito do enunciado
 
-## 1. Limite da hipótese
+## 1. Limite
 
-O desafio não informa a existência de sistema legado, arquitetura monolítica ou processo de migração. Este documento apresenta deliberadamente um **cenário hipotético** apenas para demonstrar o diferencial de arquitetura de transição.
+O desafio não informa legado, monólito ou migração. Este cenário existe apenas para demonstrar como a arquitetura-alvo poderia orientar uma transição; não justifica as decisões principais e não afirma fatos sobre o cliente.
 
-A hipótese não altera os requisitos funcionais, não cria um projeto de migração e não é utilizada como justificativa primária para a arquitetura-alvo.
+## 2. Estado hipotético
 
-## 2. Estado atual hipotético
-
-Para fins de demonstração, considera-se uma solução legada monolítica em que:
-
-- Lançamentos e Consolidação executam no mesmo processo/ciclo de deployment;
-- responsabilidades possuem alto acoplamento operacional;
-- a persistência é compartilhada;
-- falhas ou manutenção podem afetar simultaneamente registro e consolidação;
-- existe histórico hipotético de inconsistência/perda de dados entre o registro de lançamentos e sua consolidação.
-
-Nenhuma dessas características é afirmada pelo case; todas pertencem exclusivamente ao cenário hipotético deste diferencial.
+Considere, somente para análise, uma solução em que Lançamentos e Consolidação compartilham processo/deployment e persistência. Uma falha ou manutenção pode então afetar ambas as capacidades.
 
 ```mermaid
 flowchart TB
     U[Consumidor] --> M[Monólito legado hipotético]
-    subgraph M1[Mesmo ciclo de vida]
-      L[Lançamentos]
-      C[Consolidação]
-    end
-    M --> M1
-    M1 --> DB[(Persistência compartilhada)]
+    M --> DB[(Persistência compartilhada)]
 ```
 
-## 3. Arquitetura-alvo
-
-A arquitetura-alvo do desafio possui duas unidades independentes alinhadas às capacidades de negócio:
+## 3. Estado-alvo do desafio
 
 ```mermaid
 flowchart LR
-    U[Consumidor] --> T[Transactions Service]
-    U --> C[Consolidation Service]
-    T --> TDB[(Transactions PostgreSQL)]
-    TDB --> O[Transactional Outbox]
-    O --> K[(Kafka)]
-    K --> CC[Consolidation Consumer]
-    CC --> CDB[(Consolidation PostgreSQL)]
-    C --> CDB
+    U[Consumidor] --> TA[Transactions API]
+    U --> CA[Consolidation API]
+    TA --> TDB[(Transactions PostgreSQL)]
+    TW[Transactions Worker] --> TDB
+    TW --> Q[SQS Standard]
+    Q --> CW[Consolidation Worker]
+    Q -. falha persistente .-> D[DLQ]
+    CW --> CDB[(Consolidation PostgreSQL)]
+    CA --> CDB
 ```
 
-A separação permite que a indisponibilidade da consolidação não interrompa o registro de novos lançamentos. A persistência local do lançamento e da intenção de publicação reduz o risco de perda entre confirmação e integração; a entrega assíncrona permite recuperação de backlog; e o processamento idempotente evita dupla contabilização em redelivery/reprocessamento.
+São 2 serviços de negócio e 4 processos executáveis. Outbox evita dual write ingênuo; SQS desacopla disponibilidade; consumidor idempotente tolera redelivery; reconciliação usa Lançamentos como fonte de verdade.
 
-## 4. Relação entre transição e requisitos do desafio
+## 4. Relação com drivers reais
 
-| Problema do cenário hipotético | Resposta na arquitetura-alvo | Driver real do desafio |
+| Hipótese de problema legado | Resposta alvo | Driver real |
 |---|---|---|
-| ciclo de falha compartilhado | serviços/deployables independentes | RNF-001 / ASR-001 |
-| risco entre persistir lançamento e disponibilizá-lo à consolidação | persistência durável + Transactional Outbox | RNF-004 / ASR-002 |
-| consolidação indisponível bloquear fluxo | integração assíncrona e backlog recuperável | RNF-001, RNF-005, RNF-007 |
-| reprocessamento duplicar efeito | consumidor idempotente + `ProcessedEvent` | RNF-006 / ASR-004 |
-| dificuldade de diagnóstico | logs, métricas, traces, backlog/lag/freshness | RNF-010 / ASR-009 |
+| falha compartilhada | serviços independentes | RNF-001 / ASR-001 |
+| dual write | Transactional Outbox | RNF-004 / ASR-002 |
+| Consolidação bloqueia registro | SQS/backlog | RNF-001/005/007 |
+| duplicação no retry | idempotência | RNF-006 / ASR-004 |
+| divergência difícil de detectar | observabilidade + reconciliação | RNF-010 / ASR-009 |
 
-## 5. O que este diferencial não fará
+## 5. Fora do escopo
 
-Não será definido neste desafio:
+Sem cronograma, ondas, cutover, migração de dados, coexistência, CDC ou código de migração. Essas decisões exigiriam inventário e requisitos do legado inexistentes no enunciado.
 
-- cronograma de migração;
-- ondas/fases de transformação;
-- estratégia de cutover detalhada;
-- migração real de banco legado;
-- coexistência operacional com um sistema existente;
-- regras de negócio adicionais para suportar legado;
-- código específico de migração.
-
-Esses elementos dependeriam de informações de legado que o enunciado não fornece.
-
-## 6. Critério arquitetural
-
-O cenário hipotético demonstra que a arquitetura-alvo suporta uma possível modernização de uma solução acoplada para capacidades operacionalmente independentes, mas **todas as decisões principais da solução continuam derivadas dos requisitos e ASRs reais do desafio**.
+O diferencial demonstra raciocínio de transição sem transformar hipótese em requisito.

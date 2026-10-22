@@ -1,6 +1,6 @@
 # Visão de dados
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Cada serviço possui banco, credenciais e migrations próprios. Não há leitura cruzada no fluxo de negócio. Acesso excepcional de recuperação usa identidade operacional dedicada.
+Cada serviço possui banco, credenciais e migrations próprios. Não há leitura cruzada no fluxo de negócio. Acesso excepcional de recuperação usa identidade operacional dedicada.
 
 ## Lançamentos
 

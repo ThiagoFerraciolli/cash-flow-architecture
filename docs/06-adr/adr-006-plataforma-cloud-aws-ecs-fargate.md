@@ -1,6 +1,5 @@
 # ADR-006 — AWS com ECS/Fargate
 
-- **Estado:** APROVADO
 - **Direcionadores:** RNF-008/009/010/012/013, demonstração de caminho produtivo.
 
 ## Alternativas e decisão

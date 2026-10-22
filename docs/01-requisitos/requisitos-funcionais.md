@@ -1,7 +1,5 @@
 # Requisitos funcionais
 
-**Estado: DOCUMENTAÇÃO APROVADA.** RN-001 e RN-002 vêm dos dois PDFs. Os RFs refinam essas capacidades; regras adicionais são decisões aprovadas para o escopo, sem atribuição indevida ao enunciado.
-
 ## Requisitos de negócio
 
 - **RN-001:** controlar lançamentos de débito e crédito do fluxo de caixa diário.

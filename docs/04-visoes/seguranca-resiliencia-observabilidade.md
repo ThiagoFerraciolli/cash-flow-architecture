@@ -1,6 +1,6 @@
 # Visões de segurança, resiliência e observabilidade
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Controles especificados para implementação e verificação. A decisão normativa de identidade está no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md).
+Controles especificados para implementação e verificação. A decisão normativa de identidade está no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md).
 
 ## Segurança de consumo
 

@@ -1,7 +1,5 @@
 # Requisitos não funcionais
 
-**Estado: DOCUMENTAÇÃO APROVADA.** EXPLÍCITO identifica informação dos PDFs; REFINADO identifica decisões derivadas para implementação. Metas internas são aprovadas como referência de ensaio, não SLA contratado ou resultado obtido.
-
 | ID | Classificação | Requisito | Verificação futura |
 |---|---|---|---|
 | RNF-001 | EXPLÍCITO | Queda da Consolidação não torna Lançamentos indisponível | T06: parar API, Worker e banco da Consolidação |

@@ -1,6 +1,6 @@
 # Estratégia de testes e critérios de aceite
 
-**Estado: DOCUMENTAÇÃO APROVADA; TESTES NÃO IMPLEMENTADOS/NÃO EXECUTADOS.** A estratégia cobre os PDFs e os riscos arquiteturais. Ferramentas previstas: xUnit, WebApplicationFactory, Testcontainers, Docker e k6. Não usar provider in-memory como evidência de transações PostgreSQL.
+A estratégia cobre os PDFs e os riscos arquiteturais. Ferramentas previstas: xUnit, WebApplicationFactory, Testcontainers, Docker e k6. Não usar provider in-memory como evidência de transações PostgreSQL.
 
 ## Casos rastreáveis
 

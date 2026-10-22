@@ -1,7 +1,5 @@
 # Estimativa de custos de infraestrutura e licenciamento
 
-**Estado: DOCUMENTAÇÃO APROVADA; ESTIMATIVA DE PLANEJAMENTO.** Referência em 22/10/2026, USD/mês, us-east-1, 730 horas, sem créditos/free tier/descontos. Não é cotação nem custo medido. O cenário corresponde à topologia de produção documentada, incluindo conectividade e identidade.
-
 ## Memória de cálculo
 
 Preços marcados **R** derivam de exemplos públicos consultados; **H** são hipóteses unitárias de planejamento, ainda sujeitas ao Pricing Calculator. Essa distinção evita atribuir à AWS uma tarifa não confirmada. Reservas incluem pequenos consumos acessórios, mas não substituem medição.

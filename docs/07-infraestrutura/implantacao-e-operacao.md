@@ -1,7 +1,5 @@
 # Implantação, promoção e operação
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Plano a implementar após encerramento desta branch; nenhum recurso cloud será criado nesta etapa.
-
 ## Entregáveis da próxima etapa
 
 C# e testes; Compose local e seed de identidade; migrations; dois adaptadores de mensagens; ferramenta de recuperação; OpenAPI; imagens imutáveis; scripts de carga; Terraform para rede, ECS, RDS, SQS/DLQ, Cognito, IAM, KMS, ALB/WAF, segredos e alarmes. Terraform é a ferramenta escolhida para infraestrutura como código; estado remoto criptografado, bloqueio e acesso restrito, sem segredos em arquivos versionados. Pipeline GitHub Actions com OIDC para AWS, sem access keys estáticas.

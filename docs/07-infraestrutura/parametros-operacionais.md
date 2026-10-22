@@ -1,7 +1,5 @@
 # Parâmetros operacionais e metas de referência
 
-**Estado: DOCUMENTAÇÃO APROVADA.** Valores adotados pela arquitetura em 22/10/2026. São decisões técnicas e metas de validação, não exigências atribuídas aos PDFs nem garantias já medidas. Esta tabela é a fonte normativa dos valores; alterações exigem revisão de impacto e novos testes.
-
 ## Negócio e contratos
 
 | Parâmetro | Decisão |

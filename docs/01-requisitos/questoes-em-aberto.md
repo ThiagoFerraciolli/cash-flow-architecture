@@ -1,7 +1,5 @@
 # Questões de evolução e condições para adoção produtiva
 
-**Estado: DOCUMENTAÇÃO APROVADA.** As escolhas necessárias ao desafio estão fechadas. Este registro preserva perguntas relevantes para expansão ou contratação real; não mantém a arquitetura do MVP indefinida.
-
 ## Questões funcionais e tratamento atual
 
 | IDs | Tema | Tratamento aprovado |

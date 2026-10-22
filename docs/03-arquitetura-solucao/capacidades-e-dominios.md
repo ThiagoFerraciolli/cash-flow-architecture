@@ -1,6 +1,6 @@
 # Capacidades de negócio e domínios funcionais
 
-**Estado: DOCUMENTAÇÃO APROVADA.** O comerciante registra débitos/créditos e consulta o saldo do movimento diário. O valor de negócio é manter os fatos financeiros disponíveis e uma visão derivada recuperável.
+O comerciante registra débitos/créditos e consulta o saldo do movimento diário. O valor de negócio é manter os fatos financeiros disponíveis e uma visão derivada recuperável.
 
 | Capacidade | Responsabilidade | Resultado |
 |---|---|---|

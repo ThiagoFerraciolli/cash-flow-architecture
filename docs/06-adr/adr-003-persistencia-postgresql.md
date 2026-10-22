@@ -1,6 +1,5 @@
 # ADR-003 — PostgreSQL por contexto
 
-- **Estado:** APROVADO
 - **Direcionadores:** ASR-002/004, integridade monetária e isolamento de falhas.
 
 ## Alternativas e decisão

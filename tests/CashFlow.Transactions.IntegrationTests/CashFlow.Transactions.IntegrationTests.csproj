@@ -18,5 +18,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="../../src/Transactions/CashFlow.Transactions.Infrastructure/Migrations/001_financial_transactions.sql" Link="001_financial_transactions.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../src/Transactions/CashFlow.Transactions.Infrastructure/Migrations/002_idempotency_outbox.sql" Link="002_idempotency_outbox.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

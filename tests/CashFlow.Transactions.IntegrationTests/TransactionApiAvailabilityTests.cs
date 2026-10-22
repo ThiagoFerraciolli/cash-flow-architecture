@@ -1,7 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
 using Xunit;
 
@@ -12,7 +12,7 @@ public sealed class TransactionApiAvailabilityTests
     [Fact]
     public async Task Unavailable_postgres_returns_problem_503_for_database_routes()
     {
-        using var factory = CreateFactory("Host=127.0.0.1;Port=1;Database=cashflow;Username=cashflow;Password=unused;Timeout=1;Command Timeout=1");
+        using var factory = ApiTestHost.CreateFactory("Host=127.0.0.1;Port=1;Database=cashflow;Username=cashflow;Password=unused;Timeout=1;Command Timeout=1");
         using var client = factory.CreateClient();
         using var live = await client.GetAsync("/health/live", TestContext.Current.CancellationToken);
         using var ready = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
@@ -52,8 +52,11 @@ public sealed class TransactionApiAvailabilityTests
                 await using var migration = database.CreateCommand(await File.ReadAllTextAsync(
                     Path.Combine(AppContext.BaseDirectory, "001_financial_transactions.sql"), TestContext.Current.CancellationToken));
                 await migration.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+                await using var migration2 = database.CreateCommand(await File.ReadAllTextAsync(
+                    Path.Combine(AppContext.BaseDirectory, "002_idempotency_outbox.sql"), TestContext.Current.CancellationToken));
+                await migration2.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
-            using var factory = CreateFactory(testConnection);
+            using var factory = ApiTestHost.CreateFactory(testConnection);
             using var client = factory.CreateClient();
             using var ready = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
@@ -76,26 +79,10 @@ public sealed class TransactionApiAvailabilityTests
         }
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString)
-    {
-        const string key = "ConnectionStrings__Transactions";
-        var previous = Environment.GetEnvironmentVariable(key);
-        Environment.SetEnvironmentVariable(key, connectionString);
-        try
-        {
-            var factory = new WebApplicationFactory<Program>();
-            _ = factory.Server;
-            return factory;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(key, previous);
-        }
-    }
-
     private static async Task<HttpResponseMessage> SendPost(HttpClient client)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/transactions");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiTestHost.Token());
         request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
         request.Content = new StringContent("""
             {"type":"CREDIT","amount":"100.00","occurredAt":"2026-10-21T12:00:00-03:00","description":"availability test"}

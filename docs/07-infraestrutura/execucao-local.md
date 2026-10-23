@@ -5,28 +5,36 @@ Este documento descreve **somente o ambiente executável entregue**. Arquitetura
 ## Pré-requisitos
 
 - Docker Engine com Docker Compose v2.
-- `curl` e `jq` para os exemplos.
-- SDK .NET 10 somente para executar a suíte fora dos containers.
-- Internet na primeira construção/pull das imagens.
+- `curl` e `jq` para os exemplos manuais.
+- SDK .NET 10 para a validação automatizada completa.
+- Internet na primeira construção/pull das imagens e restore de dependências.
 
 O Compose usa nove serviços permanentes: quatro processos de aplicação (`transactions-api`, `transactions-worker`, `consolidation-api`, `consolidation-worker`) e cinco suportes (`postgres`, `postgres-consolidation`, `rabbitmq`, `identity`/Keycloak e `jaeger`). `migrate` e `migrate-consolidation` são jobs transitórios.
 
-## 1. Configurar o ambiente
+## Caminho recomendado para o avaliador
 
-Na raiz do repositório:
+Em um clone novo, na raiz do repositório:
 
 ```sh
 cp .env.example .env
+sh tools/validate-local.sh
 ```
 
-`.env` é ignorado pelo Git. O arquivo de exemplo contém valores exclusivamente locais. Para uma demonstração compartilhada, substitua pelo menos `KEYCLOAK_ADMIN_PASSWORD`, `DEMO_CLIENT_SECRET` e `READER_CLIENT_SECRET` por valores aleatórios, por exemplo com `openssl rand -hex 32`.
+Esse é o **golden path** de validação. O `.env.example` contém credenciais exclusivamente locais, não sensíveis e prontas para execução. O script não exige que o avaliador descubra manualmente usuários, senhas, connection strings ou variáveis `CASHFLOW_TEST_*`.
 
-PostgreSQL e RabbitMQ possuem defaults de desenvolvimento no Compose; não são credenciais de produção. HTTP e AMQP sem TLS são exceções do ambiente local.
+`tools/validate-local.sh` carrega o mesmo `.env` usado pelo Compose, deriva as variáveis de integração com os usuários/bancos/portas reais da topologia, sobe os containers com `--wait`, verifica readiness, restaura dependências em modo locked, compila e executa toda a solução de testes. Qualquer falha encerra o script com status diferente de zero.
 
-## 2. Subir a solução
+O script também cria `.env` automaticamente a partir de `.env.example` quando ele ainda não existe; o `cp` acima permanece explícito para deixar o bootstrap visível ao avaliador.
+
+> As credenciais do `.env.example` existem apenas para localhost. Não devem ser reutilizadas em ambiente compartilhado ou produção.
+
+## 1. Subir somente a solução
+
+Se o objetivo for explorar a aplicação sem executar a regressão:
 
 ```sh
-docker compose up -d --build
+cp .env.example .env
+docker compose up -d --build --wait
 docker compose ps
 ```
 
@@ -56,7 +64,7 @@ Os dados persistem em `runtime-data/` e são ignorados pelo Git. `docker compose
 
 O Compose aguarda Jaeger saudável antes de iniciar os quatro processos de aplicação para tornar a demonstração determinística. Isso é conveniência local; observabilidade **não** é dependência de disponibilidade da arquitetura de produção.
 
-## 3. Obter token e registrar lançamento
+## 2. Obter token e registrar lançamento
 
 ```sh
 set -a
@@ -102,7 +110,7 @@ Resultado esperado para esses dois fatos: créditos `100.00`, débitos `20.00`, 
 
 Repetir exatamente o mesmo POST com a mesma identidade/chave retorna `201` com `Idempotent-Replayed: true` e não cria novo efeito. Reutilizar a chave com comando diferente retorna `409`.
 
-## 4. Comportamento distribuído implementado
+## 3. Comportamento distribuído implementado
 
 Transactions grava fato, idempotência e Outbox na mesma transação PostgreSQL. O Transactions Worker reserva a Outbox e publica `TransactionCreatedV1` no RabbitMQ com mensagem persistente, `mandatory` e publisher confirm. O Consolidation Worker consome com ACK manual após commit e mantém deduplicação por identidade financeira na geração ativa.
 
@@ -110,21 +118,35 @@ A entrega é **at-least-once**. Duplicatas podem existir no transporte; a idempo
 
 Falhas permanentes podem seguir para DLQ. O T09 executado comprovou somente mensagem permanentemente inválida chegando à DLQ sem alterar a projeção; redrive operacional completo não foi demonstrado.
 
-## 5. Testes automatizados
+## 4. Testes automatizados
 
-Com o Compose saudável, a regressão completa pode ser executada com:
+A forma suportada de executar a regressão completa é:
 
 ```sh
+sh tools/validate-local.sh
+```
+
+Para transparência, o script equivale conceitualmente a:
+
+```sh
+set -a
+source .env
+set +a
+
+export CASHFLOW_TEST_POSTGRES="Host=127.0.0.1;Port=5433;Database=cashflow;Username=cashflow;Password=${POSTGRES_PASSWORD}"
+export CASHFLOW_TEST_CONSOLIDATION_POSTGRES="Host=127.0.0.1;Port=5434;Database=consolidation;Username=consolidation;Password=${CONSOLIDATION_POSTGRES_PASSWORD}"
+export CASHFLOW_TEST_RABBITMQ="amqp://cashflow:${RABBITMQ_PASSWORD}@127.0.0.1:5672/"
+
 dotnet restore --locked-mode
 dotnet build --no-restore
 dotnet test --no-build
 ```
 
-A última execução registrada resultou em **89 passed, 0 failed, 0 skipped**. Esse número é evidência local registrada, não resultado de CI.
+Não use `postgres/postgres` ou `guest/guest`: esses não são os usuários/credenciais da topologia entregue. Transactions usa usuário `cashflow`; Consolidation usa `consolidation`; RabbitMQ usa `cashflow`. O script evita divergência entre Compose e testes ao derivar tudo do mesmo `.env`.
 
-Os testes de integração usam PostgreSQL e RabbitMQ reais quando as variáveis correspondentes são configuradas. Consulte os projetos em `tests/` para execução isolada.
+A evidência histórica anterior às últimas correções registrou **89 passed, 0 failed, 0 skipped**. Ela não é apresentada como regressão da revisão atual; o resultado atual deve ser obtido novamente pelo comando acima antes do fechamento.
 
-## 6. Ensaios operacionais disponíveis
+## 5. Ensaios operacionais disponíveis
 
 Com `set -a; source .env; set +a` e o Compose saudável:
 
@@ -142,13 +164,13 @@ python3 tests/performance/t15_run.py
 
 Resultados efetivamente observados estão em [validação local final](../08-testes/validacao-local-final.md). A [estratégia T01–T20](../05-arquitetura-software/estrategia-testes.md) é normativa e contém cenários mais amplos que não foram todos executados.
 
-## 7. Recovery e observabilidade
+## 6. Recovery e observabilidade
 
 `tools/CashFlow.Recovery` lê a fonte Transactions em snapshot somente leitura, constrói uma nova geração e a ativa sob lease PostgreSQL renovável com fencing. Se o processo Recovery morrer, a lease expira, o Worker retoma e o operador deve iniciar um novo rebuild; não existe retomada automática do processo administrativo.
 
 Os quatro processos emitem traces OpenTelemetry, logs estruturados e métricas em `/metrics`. Jaeger recebe traces via OTLP. Não há servidor Prometheus, Grafana ou OTel Collector no Compose entregue. `/metrics` é exposto diretamente no ambiente local; em produção deve permanecer em superfície administrativa/privada.
 
-## 8. Limites do ambiente local
+## 7. Limites do ambiente local
 
 O Compose demonstra comportamento funcional, independência dos contextos, segurança local, mensageria RabbitMQ, recovery e observabilidade. Ele **não demonstra** alta disponibilidade de RabbitMQ em cluster, SQS, Cognito, IAM, KMS, WAF, ECS/Fargate, RDS Multi-AZ, Terraform, deployment AWS, RTO/RPO produtivos ou SLA.
 

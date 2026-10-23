@@ -53,6 +53,35 @@ CASHFLOW_TEST_CONSOLIDATION_POSTGRES='Host=127.0.0.1;Port=5434;Database=consolid
 
 Ajuste as senhas no comando se configurar as variáveis de senha. Os testes criam e removem schemas PostgreSQL e vhosts RabbitMQ isolados.
 
+### E2E completo — fluxo autenticado
+
+Com o Docker Compose local saudável e o `.env` local configurado com o segredo de `cashflow-demo`, execute na raiz do repositório:
+
+```sh
+set -a; source .env
+dotnet test tests/CashFlow.EndToEndTests --no-build \
+  --filter FullyQualifiedName~Keycloak_to_transactions_outbox_rabbitmq_and_consolidation_converges
+```
+
+O teste valida o caminho real Keycloak → Transactions API → Outbox → RabbitMQ → Consolidation Worker → Consolidation API, com lançamentos autenticados e espera limitada pela convergência da projeção.
+
+### T06 — independência de Transactions durante outage de Consolidation
+
+Com o mesmo Compose saudável, execute na raiz do repositório:
+
+```sh
+set -a; source .env
+python3 tests/operational/t06_transactions_independent.py
+```
+
+O script para `consolidation-api`, `consolidation-worker` e `postgres-consolidation`, verifica que Transactions continua live/ready e aceita lançamentos durante a indisponibilidade, restaura os serviços e aguarda a convergência da projeção.
+
+### T15 — ensaio local bounded de Consolidação
+
+Com o Compose saudável e `DEMO_CLIENT_SECRET` e `READER_CLIENT_SECRET` carregados do `.env` local, execute `python3 tests/performance/t15_run.py`. O runner obtém JWTs do Keycloak, prepara via HTTP uma data de negócio isolada com CREDIT 100.00 e DEBIT 20.00 e espera a projeção convergir antes da medição. Em seguida, executa `tests/performance/t15_consolidation_50rps.js` no container `grafana/k6:1.5.0`, conectado à rede do Compose. O token de leitura é passado ao container por variável de ambiente, sem ser impresso.
+
+O warm-up é uma execução separada de 10 s a 10 requisições/s. A janela medida usa `constant-arrival-rate` por 2 min a 50 requisições/s (6.000 requisições esperadas), com um GET autenticado por iteração e timeout HTTP de 5 s. O script valida os valores e o estado da resposta, contando no máximo uma falha por request mesmo se houver timeout, erro de transporte, status inesperado ou body incorreto. Aprovação local: taxa sustentada ≥ 50 requisições/s, falhas/requisições enviadas ≤ 5% e `dropped_iterations=0`. P95 ≤ 500 ms e P99 ≤ 1 s são metas internas reportadas separadamente. Este ensaio bounded e reproduzível de 2 min é a validação local final; não substitui o ensaio principal de 10 min registrado em `parametros-operacionais.md`.
+
 `docker compose down` remove containers e rede, mas preserva os três diretórios em `./runtime-data`; `docker compose up -d` recria os serviços com os mesmos dados, projeção, identidades processadas e mensagens persistentes. Para reset explicitamente destrutivo, execute `docker compose down` e remova manualmente esses diretórios antes de subir o ambiente novamente.
 
 ## Arquitetura-alvo — especificação futura

@@ -76,6 +76,30 @@ services:
       retries: 20
     restart: unless-stopped
 
+  identity:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in a local .env file}
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+      DEMO_CLIENT_SECRET: ${DEMO_CLIENT_SECRET:?Set DEMO_CLIENT_SECRET in a local .env file}
+      READER_CLIENT_SECRET: ${READER_CLIENT_SECRET:?Set READER_CLIENT_SECRET in a local .env file}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./runtime-data/identity:/opt/keycloak/data
+      - ./identity/cashflow-realm.json:/opt/keycloak/data/import/cashflow-realm.json:ro
+    healthcheck:
+      test: ["CMD", "bash", "-c", "{ printf 'HEAD /health/ready HTTP/1.0\r\n\r\n' >&0; grep 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+
   transactions-api:
     build:
       context: .

@@ -21,20 +21,39 @@ flowchart LR
 
 ## O que está implementado
 
-O corte local executável usa Docker Compose, dois PostgreSQL, RabbitMQ, Keycloak e Jaeger. As APIs validam JWT e permissões por cliente. Os quatro processos emitem logs estruturados, métricas e traces OpenTelemetry. O fluxo de mensageria implementa publisher confirms, ACK após commit, retry/DLQ, circuit breaker e idempotência financeira. Um [Recovery administrativo](docs/07-infraestrutura/recuperacao-e-reconciliacao.md) recompõe a projeção em nova geração sob lease/fencing PostgreSQL.
+O corte local executável usa Docker Compose, dois PostgreSQL, RabbitMQ, Keycloak e Jaeger. As APIs validam JWT e permissões por cliente. Os quatro processos emitem logs estruturados, métricas e traces OpenTelemetry. O Transactions Publisher implementa publisher confirms e circuit breaker; o Consolidation Worker faz ACK após commit, retry/DLQ e processamento idempotente. Um [Recovery administrativo](docs/07-infraestrutura/recuperacao-e-reconciliacao.md) recompõe a projeção em nova geração sob lease/fencing PostgreSQL.
 
 RabbitMQ é o único transporte implementado. **SQS Standard é a escolha da arquitetura-alvo AWS, mas o adaptador SQS não foi implementado nem homologado.** O [ADR-007](docs/06-adr/adr-007-estrategia-de-mensageria.md) registra a escolha e o [ADR-010](docs/06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md) descreve as diferenças semânticas.
 
-## Como executar
+## Comece aqui: executar e validar
+
+Pré-requisitos: Docker com Compose v2, SDK .NET 10, `curl` e acesso à internet no primeiro build.
+
+Para um clone novo, a validação local completa deve exigir somente:
 
 ```sh
 cp .env.example .env
-# Edite os três segredos obrigatórios do Keycloak/clientes no .env.
-docker compose up -d --build
-docker compose ps
+sh tools/validate-local.sh
 ```
 
-O `.env` é ignorado pelo Git. `.env.example` contém apenas valores/placeholder de desenvolvimento; para ambiente compartilhado, gere segredos próprios.
+O `.env.example` já contém **credenciais locais não sensíveis e prontas para execução**. Não é necessário inventar senhas, connection strings ou variáveis de teste para validar o projeto. O script:
+
+1. carrega o `.env` (e o cria a partir do exemplo se estiver ausente);
+2. deriva as connection strings e a URI RabbitMQ usadas pelos testes a partir das mesmas credenciais do Compose;
+3. sobe toda a topologia com `docker compose up -d --build --wait`;
+4. valida readiness das APIs;
+5. executa `dotnet restore --locked-mode` e `dotnet build --no-restore`;
+6. executa unit, contract, integration e E2E com `dotnet test --no-build`.
+
+Se qualquer etapa falhar, o script encerra com código diferente de zero. Para ambiente compartilhado/produção, **não reutilize** as credenciais locais do `.env.example`.
+
+Para somente subir a aplicação:
+
+```sh
+cp .env.example .env
+docker compose up -d --build --wait
+docker compose ps
+```
 
 Transactions API: `127.0.0.1:8081`; Consolidation API: `127.0.0.1:8082`; Keycloak: `127.0.0.1:8080`; Jaeger: `127.0.0.1:16686`.
 
@@ -51,7 +70,7 @@ As [evidências locais finais](docs/08-testes/validacao-local-final.md) registra
 - T14: trace atravessou API → Outbox → Worker → RabbitMQ → Worker → banco de Consolidação no Jaeger local.
 - T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0 dropped iterations, P95 4,372 ms e P99 6,052 ms.
 - T18: bootstrap local limpo com migrations, serviços saudáveis, token e primeiro POST 201.
-- Regressão final local: `restore` PASS, `build` PASS e **89 passed, 0 failed, 0 skipped**.
+- Regressão histórica anterior às últimas correções de segurança/documentação: `restore` PASS, `build` PASS e **89 passed, 0 failed, 0 skipped**. A regressão da revisão atual deve ser executada novamente antes do fechamento e não é inferida desse resultado histórico.
 
 Esses resultados são evidência **local**, não GitHub CI e não validação AWS. A [rastreabilidade de testes](docs/08-testes/production-grade-local-traceability.md) distingue estratégia normativa, cobertura automatizada e ensaios operacionais limitados.
 

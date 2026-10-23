@@ -15,4 +15,7 @@
     <ProjectReference Include="../../src/Consolidation/CashFlow.Consolidation.Api/CashFlow.Consolidation.Api.csproj" />
     <ProjectReference Include="../../src/Consolidation/CashFlow.Consolidation.Infrastructure/CashFlow.Consolidation.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../src/Consolidation/CashFlow.Consolidation.Infrastructure/Migrations/001_consolidation.sql" Link="001_consolidation.sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

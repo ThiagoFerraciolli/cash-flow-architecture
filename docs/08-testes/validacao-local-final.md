@@ -75,15 +75,27 @@ Este registro consolida resultados observados no ambiente **Docker Compose local
 
 ## Regressão final
 
-Execução local final registrada:
+Em 23/10/2026, a revisão atual foi executada pelo caminho documentado `sh tools/validate-local.sh`. O script construiu as quatro imagens de aplicação, aguardou a topologia Compose ficar saudável, verificou readiness, restaurou dependências, compilou e executou a suíte completa.
 
 ```text
 dotnet restore --locked-mode  PASS
-dotnet build --no-restore     PASS
-dotnet test --no-build        89 passed / 0 failed / 0 skipped
+dotnet build --no-restore     PASS (0 warnings / 0 errors)
+dotnet test --no-build        90 passed / 0 failed / 0 skipped
 ```
 
-Execuções anteriores de 80 e 84 testes fazem parte da evolução da implementação e não são o gate final. O número de referência da entrega é **89 passed, 0 failed, 0 skipped**, sempre qualificado como execução local e não CI.
+Distribuição observada:
+
+| Projeto de teste | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| Transactions UnitTests | 13 | 0 | 0 |
+| Consolidation UnitTests | 1 | 0 | 0 |
+| ContractTests | 1 | 0 | 0 |
+| Transactions IntegrationTests | 18 | 0 | 0 |
+| Consolidation IntegrationTests | 55 | 0 | 0 |
+| EndToEndTests | 2 | 0 | 0 |
+| **Total** | **90** | **0** | **0** |
+
+Execuções anteriores de 80, 84 e 89 testes pertencem à evolução da implementação. O gate atual da revisão é **90 passed, 0 failed, 0 skipped**, qualificado como execução local e não CI.
 
 ## O que não foi demonstrado
 

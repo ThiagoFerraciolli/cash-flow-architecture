@@ -1,8 +1,8 @@
 # Execução local — especificação do ambiente
 
-## Estado executável atual — Fase 4
+## Estado executável atual — Fase 5
 
-O `compose.yaml` desta branch executa quatro workloads permanentes: `postgres`, `rabbitmq`, `transactions-api` e `transactions-worker`. O job `migrate` encerra após aplicar as migrations. Transactions API e Transactions Worker são processos e containers independentes. Requer Docker Engine com Compose v2. Na raiz do repositório:
+O `compose.yaml` desta branch executa seis workloads permanentes: `postgres` (banco de Transactions), `postgres-consolidation`, `rabbitmq`, `transactions-api`, `transactions-worker` e `consolidation-worker`. Os jobs `migrate` e `migrate-consolidation` encerram após aplicar as migrations de cada contexto. API e Workers são processos e containers independentes. Requer Docker Engine com Compose v2. Na raiz do repositório:
 
 ```sh
 docker compose up -d --build
@@ -11,9 +11,9 @@ curl --fail http://127.0.0.1:8081/health/live
 curl --fail http://127.0.0.1:8081/health/ready
 ```
 
-A Transactions API está em `127.0.0.1:8081`, o PostgreSQL em `127.0.0.1:5433`, o AMQP RabbitMQ em `127.0.0.1:5672` e a interface de gestão RabbitMQ em `127.0.0.1:15672`. Dentro do Compose, API e Worker conectam-se a `postgres:5432`, e o Worker conecta-se a `rabbitmq:5672`. O fuso de negócio padrão é `America/Sao_Paulo`. O banco e usuário locais são `cashflow`; a senha padrão `cashflow_local_only` serve apenas ao desenvolvimento e pode ser substituída por `POSTGRES_PASSWORD` no ambiente ou em `.env` local ignorado pelo Git. A credencial RabbitMQ local usa `RABBITMQ_PASSWORD` da mesma forma.
+A Transactions API está em `127.0.0.1:8081`, o PostgreSQL de Transactions em `127.0.0.1:5433`, o PostgreSQL de Consolidação em `127.0.0.1:5434`, o AMQP RabbitMQ em `127.0.0.1:5672` e a interface de gestão RabbitMQ em `127.0.0.1:15672`. Dentro do Compose, Transactions API e Worker conectam-se a `postgres:5432`; Consolidation Worker conecta-se a `postgres-consolidation:5432`; ambos os Workers conectam-se a `rabbitmq:5672`. O fuso de negócio padrão é `America/Sao_Paulo`. O banco e usuário de Transactions são `cashflow`; os de Consolidação são `consolidation`. As senhas locais padrão `cashflow_local_only` e `consolidation_local_only` servem apenas ao desenvolvimento e podem ser substituídas por `POSTGRES_PASSWORD` e `CONSOLIDATION_POSTGRES_PASSWORD` no ambiente ou em `.env` local ignorado pelo Git. A credencial RabbitMQ local usa `RABBITMQ_PASSWORD` da mesma forma.
 
-Os dados persistem em `./runtime-data/postgres`, ignorado pelo Git. Após o PostgreSQL ficar saudável, o job `migrate` aplica `001_financial_transactions.sql` e `002_idempotency_outbox.sql` em ordem; a API aguarda o término bem-sucedido do job. Isso também atualiza um banco local criado na Fase 2 sem apagar seus lançamentos. O job local não define a topologia de migrations de produção.
+Os dados de Transactions persistem em `./runtime-data/postgres`; os de Consolidação, em `./runtime-data/consolidation-postgres`; e os do broker, em `./runtime-data/rabbitmq`, todos ignorados pelo Git. O job `migrate` aplica `001_financial_transactions.sql` e `002_idempotency_outbox.sql` em ordem; `migrate-consolidation` aplica `001_consolidation.sql` no banco próprio e cria uma geração `ACTIVE` vazia com `projection_control.maintenance=false`. Cada processo aguarda somente a migration do seu contexto. Os jobs locais não definem a topologia de migrations de produção.
 
 O POST exige JWT assinado e validado, com `iss`, `aud=cashflow-api`, `client_id` permitido e permissão lógica `transactions.write`. Configure `CASHFLOW_AUTHORITY` com a URL de discovery/JWKS do emissor confiável, `CASHFLOW_ISSUER` com o issuer esperado e `CASHFLOW_ALLOWED_CLIENT_IDS` com os clientes permitidos antes de subir o Compose. Os defaults apontam para a identidade local prevista na arquitetura-alvo, ainda não fornecida neste Compose. Para demonstração local, use um emissor JWT de teste controlado externamente ao Compose e forneça um token válido em `TOKEN`; não há bypass de autenticação nem identidade provisória no código de produção.
 
@@ -29,9 +29,11 @@ curl --fail-with-body --include http://127.0.0.1:8081/transactions \
 curl --fail-with-body http://127.0.0.1:8081/transactions/SEU_ID
 ```
 
-Repetir o mesmo POST com a mesma chave e identidade retorna `201` com `Idempotent-Replayed: true` e o mesmo ID. Reutilizar a chave com outro comando retorna `409`. Cada primeira criação confirmada grava, em uma transação PostgreSQL, o lançamento, o registro de idempotência e uma mensagem Outbox em estado `PENDING`. O Worker reserva essa mensagem no PostgreSQL, publica o `TransactionCreatedV1` persistente com `mandatory` e publisher confirm no exchange direto durável `cashflow.events`, routing key `transaction.created.v1`, e só então marca `PUBLISHED`. A fila `consolidation.transactions.v1` é quorum e durável; não há consumidor de Consolidação nesta fase. A entrega é **at-least-once**: uma falha entre confirmação e marcação pode republicar o mesmo `eventId`. Lançamentos criados antes da Fase 3 permanecem no banco sem uma identidade histórica fabricada.
+Repetir o mesmo POST com a mesma chave e identidade retorna `201` com `Idempotent-Replayed: true` e o mesmo ID. Reutilizar a chave com outro comando retorna `409`. Cada primeira criação confirmada grava, em uma transação PostgreSQL, o lançamento, o registro de idempotência e uma mensagem Outbox em estado `PENDING`. Transactions Worker reserva essa mensagem no PostgreSQL, publica o `TransactionCreatedV1` persistente com `mandatory` e publisher confirm no exchange direto durável `cashflow.events`, routing key `transaction.created.v1`, e só então marca `PUBLISHED`. Consolidation Worker consome a fila quorum `consolidation.transactions.v1` com ACK manual, prefetch 16 e até 8 processamentos simultâneos. Ele valida o contrato, trava `projection_control FOR SHARE`, grava `processed_transactions` e atualiza `daily_consolidations` por UPSERT relativo na mesma transação do seu banco; o ACK ocorre após o commit. Duplicatas do mesmo fato financeiro são no-op, inclusive com outro `eventId`. Conflitos de identidade e contratos inválidos vão para a DLQ somente após confirmação da publicação nela. A entrega é **at-least-once**: publicação repetida e redelivery podem ocorrer, mas a identidade `(generation_id, transaction_id)` impede segundo efeito financeiro na geração. Lançamentos criados antes da Fase 3 permanecem no banco sem uma identidade histórica fabricada.
 
 O Worker consulta até 20 itens por segundo, publica até 4 em paralelo e usa lease de 60 s com renovação a cada 20 s. Falhas sistêmicas do broker abrem circuito com backoff e deixam itens recuperáveis sem consumir as 20 tentativas de falha isolada. Para demonstrar independência da API, pare somente `rabbitmq`, crie um lançamento com JWT válido e observe POST `201` e Outbox `PENDING`; reinicie o broker e aguarde `PUBLISHED`. `/health/ready` da API depende do PostgreSQL, não do broker. O Worker expõe liveness e readiness privadas no container; sua readiness reflete banco e publicador.
+
+Consolidation Worker declara `cashflow.retry` e as filas quorum `consolidation.retry.5s`, `.15s`, `.30s` e `.60s`. Falhas isoladas usam `retryAttempt` até cinco processamentos, com TTL técnico de 5, 15, 30 e 60 segundos e retorno à rota principal por DLX. Contrato inválido, conflito financeiro e falha isolada esgotada seguem por `cashflow.errors`/`transaction.created.v1.failed` para a fila quorum `consolidation.transactions.v1.dlq`. Publicações para retry/DLQ são persistentes, mandatory e confirmadas antes do ACK da original. A política RabbitMQ da fila principal define delivery-limit 100 e DLX seguro; a interface de gestão local é usada pelo Worker para aplicar essa política à fila já persistida pela Fase 4. Indisponibilidade compartilhada do banco da Consolidação pausa o consumidor e deixa mensagens recuperáveis na fila principal, sem aumentar `retryAttempt` nem impedir POST na Transactions API. O Worker retoma após readiness do seu banco. `/health/live` e `/health/ready` são privados ao container do Worker.
 
 Para executar os testes de integração contra PostgreSQL e RabbitMQ reais:
 
@@ -39,17 +41,21 @@ Para executar os testes de integração contra PostgreSQL e RabbitMQ reais:
 CASHFLOW_TEST_POSTGRES='Host=127.0.0.1;Port=5433;Database=cashflow;Username=cashflow;Password=cashflow_local_only' \
   CASHFLOW_TEST_RABBITMQ='amqp://cashflow:cashflow_local_only@127.0.0.1:5672/' \
   dotnet test tests/CashFlow.Transactions.IntegrationTests --no-build
+
+CASHFLOW_TEST_CONSOLIDATION_POSTGRES='Host=127.0.0.1;Port=5434;Database=consolidation;Username=consolidation;Password=consolidation_local_only' \
+  CASHFLOW_TEST_RABBITMQ='amqp://cashflow:cashflow_local_only@127.0.0.1:5672/' \
+  dotnet test tests/CashFlow.Consolidation.IntegrationTests --no-build
 ```
 
-Ajuste as senhas no comando se configurar `POSTGRES_PASSWORD` ou `RABBITMQ_PASSWORD`. Os testes criam e removem schemas PostgreSQL e filas RabbitMQ isolados.
+Ajuste as senhas no comando se configurar as variáveis de senha. Os testes criam e removem schemas PostgreSQL e vhosts RabbitMQ isolados.
 
-`docker compose down` remove containers e rede, mas preserva `./runtime-data/postgres` e `./runtime-data/rabbitmq`; `docker compose up -d` os recria com os mesmos dados e mensagens persistentes. Para reset explicitamente destrutivo, execute `docker compose down` e remova manualmente esses diretórios antes de subir o ambiente novamente.
+`docker compose down` remove containers e rede, mas preserva os três diretórios em `./runtime-data`; `docker compose up -d` recria os serviços com os mesmos dados, projeção, identidades processadas e mensagens persistentes. Para reset explicitamente destrutivo, execute `docker compose down` e remova manualmente esses diretórios antes de subir o ambiente novamente.
 
 ## Arquitetura-alvo — especificação futura
 
 Há dois serviços/bounded contexts, Transactions e Consolidation, com quatro deployables independentes: Transactions API, Transactions Worker/Outbox Publisher, Consolidation API e Consolidation Worker. API e Worker não são combinados no mesmo container. PostgreSQL e RabbitMQ completam a topologia mínima de seis workloads principais. A especificação detalhada abaixo prevê também infraestrutura e ferramentas auxiliares, inclusive ownership independente dos dados de cada contexto; esta seção não altera a decisão de deployment físico futuro.
 
-Os comandos e exemplos das seções seguintes dependem de capacidades ainda não implementadas nesta branch. O consumidor de Consolidação, `ProcessedTransaction`, a consolidação diária, retry/DLQ do consumidor, SQS operacional, Cognito, Keycloak completo, Terraform, deployment AWS e observabilidade completa não fazem parte do Compose executável da Fase 4. A arquitetura AWS permanece documentada como alvo, sem homologação nesta fase.
+Os comandos e exemplos das seções seguintes dependem de capacidades ainda não implementadas nesta branch. A Consolidation HTTP API, rebuild/reconciliation completos, SQS operacional, Cognito, Keycloak completo, Terraform, deployment AWS, ensaios de performance/RTO/RPO e observabilidade completa não fazem parte do Compose executável da Fase 5. A arquitetura AWS permanece documentada como alvo, sem homologação nesta fase.
 
 ## Pré-requisitos e composição
 

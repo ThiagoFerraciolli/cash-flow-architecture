@@ -49,7 +49,9 @@
         "type": "Project",
         "dependencies": {
           "CashFlow.Consolidation.Application": "[1.0.0, )",
-          "CashFlow.Consolidation.Domain": "[1.0.0, )"
+          "CashFlow.Consolidation.Domain": "[1.0.0, )",
+          "Npgsql": "[10.0.0, )",
+          "RabbitMQ.Client": "[7.2.2, )"
         }
       },
       "cashflow.transactions.application": {

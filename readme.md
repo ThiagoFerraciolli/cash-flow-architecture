@@ -21,39 +21,43 @@ flowchart LR
 
 ## O que está implementado
 
-O corte local executável usa Docker Compose, dois PostgreSQL, RabbitMQ, Keycloak e Jaeger. As APIs validam JWT e permissões por cliente. Os quatro processos emitem logs estruturados, métricas e traces OpenTelemetry. O fluxo de mensageria implementa publisher confirms, ack após commit, retry/DLQ, circuit breaker e idempotência financeira. Um [Recovery administrativo](docs/07-infraestrutura/recuperacao-e-reconciliacao.md) recompõe a projeção em nova geração e realiza a troca da geração ativa sob lease/fencing PostgreSQL.
+O corte local executável usa Docker Compose, dois PostgreSQL, RabbitMQ, Keycloak e Jaeger. As APIs validam JWT e permissões por cliente. Os quatro processos emitem logs estruturados, métricas e traces OpenTelemetry. O fluxo de mensageria implementa publisher confirms, ACK após commit, retry/DLQ, circuit breaker e idempotência financeira. Um [Recovery administrativo](docs/07-infraestrutura/recuperacao-e-reconciliacao.md) recompõe a projeção em nova geração sob lease/fencing PostgreSQL.
 
-RabbitMQ é o único transporte implementado nesta entrega. **SQS Standard é a escolha para a arquitetura-alvo AWS, mas o adaptador SQS não foi implementado nem homologado.** O [ADR-007](docs/06-adr/adr-007-estrategia-de-mensageria.md) registra a escolha tecnológica e o [ADR-010](docs/06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md) descreve as diferenças semânticas entre o transporte local e o alvo AWS.
-
-## Evidência executada
-
-As [evidências locais finais](docs/08-testes/validacao-local-final.md) registram os limites de cada ensaio. Entre os resultados observados:
-
-- E2E autenticado: CREDIT 100 + DEBIT 20 → créditos 100, débitos 20, saldo 80, contagem 2.
-- T06: com Consolidation API, Worker e banco parados, Transactions permaneceu live/ready e aceitou dois POSTs HTTP 201; após restauração, a projeção convergiu.
-- T09: mensagem permanentemente inválida chegou à DLQ; redrive completo não foi executado.
-- T13: 401 sem token, 403 para cliente sem permissão de escrita, 201 para escrita autorizada e 200 para leitura autorizada.
-- T14: trace transacional atravessou API → Outbox → Worker → RabbitMQ → Worker → banco de Consolidação no Jaeger local.
-- T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0 dropped iterations, P95 4,372 ms e P99 6,052 ms.
-- T18: bootstrap local limpo com migrations, serviços saudáveis, token e primeiro POST 201.
-- Regressão final local: `dotnet restore --locked-mode` PASS, `dotnet build --no-restore` PASS e `dotnet test --no-build` com **89 passed, 0 failed, 0 skipped**.
-
-Esses resultados são evidência **local**, não GitHub CI e não validação AWS. A [rastreabilidade de testes](docs/08-testes/production-grade-local-traceability.md) distingue estratégia normativa, cobertura automatizada e ensaios operacionais limitados.
+RabbitMQ é o único transporte implementado. **SQS Standard é a escolha da arquitetura-alvo AWS, mas o adaptador SQS não foi implementado nem homologado.** O [ADR-007](docs/06-adr/adr-007-estrategia-de-mensageria.md) registra a escolha e o [ADR-010](docs/06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md) descreve as diferenças semânticas.
 
 ## Como executar
 
-Crie um `.env` local com os segredos exigidos pelo Compose; o arquivo é ignorado pelo Git. Em seguida:
-
 ```sh
+cp .env.example .env
+# Edite os três segredos obrigatórios do Keycloak/clientes no .env.
 docker compose up -d --build
 docker compose ps
 ```
 
-Transactions API: `127.0.0.1:8081`; Consolidation API: `127.0.0.1:8082`; Keycloak: `127.0.0.1:8080`; Jaeger: `127.0.0.1:16686`. O [guia de execução local](docs/07-infraestrutura/execucao-local.md) contém configuração, obtenção de token e comandos de validação. HTTP/AMQP sem TLS e a dependência de startup do Jaeger são conveniências do ambiente demonstrativo, não decisões de disponibilidade para produção.
+O `.env` é ignorado pelo Git. `.env.example` contém apenas valores/placeholder de desenvolvimento; para ambiente compartilhado, gere segredos próprios.
+
+Transactions API: `127.0.0.1:8081`; Consolidation API: `127.0.0.1:8082`; Keycloak: `127.0.0.1:8080`; Jaeger: `127.0.0.1:16686`.
+
+O [guia de execução local](docs/07-infraestrutura/execucao-local.md) contém obtenção de token, chamadas HTTP, testes e ensaios operacionais. HTTP/AMQP sem TLS e a dependência de startup do Jaeger são conveniências do ambiente demonstrativo, não decisões de disponibilidade para produção.
+
+## Evidência executada
+
+As [evidências locais finais](docs/08-testes/validacao-local-final.md) registram os limites de cada ensaio:
+
+- E2E autenticado: CREDIT 100 + DEBIT 20 → créditos 100, débitos 20, saldo 80, contagem 2.
+- T06: com Consolidation API, Worker e banco parados, Transactions permaneceu live/ready e aceitou dois POSTs 201; após restauração, a projeção convergiu.
+- T09: mensagem permanentemente inválida chegou à DLQ; redrive completo não foi executado.
+- T13: 401 sem token, 403 sem permissão, 201 em escrita autorizada e 200 em leitura autorizada.
+- T14: trace atravessou API → Outbox → Worker → RabbitMQ → Worker → banco de Consolidação no Jaeger local.
+- T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0 dropped iterations, P95 4,372 ms e P99 6,052 ms.
+- T18: bootstrap local limpo com migrations, serviços saudáveis, token e primeiro POST 201.
+- Regressão final local: `restore` PASS, `build` PASS e **89 passed, 0 failed, 0 skipped**.
+
+Esses resultados são evidência **local**, não GitHub CI e não validação AWS. A [rastreabilidade de testes](docs/08-testes/production-grade-local-traceability.md) distingue estratégia normativa, cobertura automatizada e ensaios operacionais limitados.
 
 ## Arquitetura-alvo AWS
 
-O **corte distribuído local** está implementado e validado com os componentes descritos acima. A [arquitetura-alvo AWS](docs/07-infraestrutura/arquitetura-aws.md) projeta ECS/Fargate, RDS, SQS Standard, ALB, Cognito, IAM, KMS e observabilidade gerenciada. Nenhuma infraestrutura AWS foi provisionada ou testada neste estudo de caso. A adoção dessa topologia exige implementação do adaptador SQS, infraestrutura, configuração de identidade e homologação no ambiente AWS.
+O corte distribuído local está implementado com os componentes acima. A [arquitetura-alvo AWS](docs/07-infraestrutura/arquitetura-aws.md) projeta ECS/Fargate, RDS, SQS Standard, ALB, Cognito, IAM, KMS e observabilidade gerenciada. Nenhuma infraestrutura AWS foi provisionada ou testada neste estudo. A adoção exige implementação do adaptador SQS, infraestrutura, configuração de identidade e homologação AWS.
 
 ## Guia de avaliação
 

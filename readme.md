@@ -29,16 +29,16 @@ RabbitMQ é o único transporte implementado. **SQS Standard é a escolha da arq
 
 Pré-requisitos: Docker com Compose v2, SDK .NET 10, `curl` e acesso à internet no primeiro build.
 
-Para um clone novo, a validação local completa deve exigir somente:
+Para um clone novo, a validação local completa exige somente:
 
 ```sh
 cp .env.example .env
 sh tools/validate-local.sh
 ```
 
-O `.env.example` já contém **credenciais locais não sensíveis e prontas para execução**. Não é necessário inventar senhas, connection strings ou variáveis de teste para validar o projeto. O script:
+O `.env.example` já contém **credenciais locais não sensíveis e prontas para execução**. Não é necessário inventar senhas, connection strings ou variáveis de teste para validar o projeto. O script usa `.env.example` como baseline e `.env` como override local, portanto também tolera um `.env` parcial. Ele:
 
-1. carrega o `.env` (e o cria a partir do exemplo se estiver ausente);
+1. carrega a configuração local;
 2. deriva as connection strings e a URI RabbitMQ usadas pelos testes a partir das mesmas credenciais do Compose;
 3. sobe toda a topologia com `docker compose up -d --build --wait`;
 4. valida readiness das APIs;
@@ -70,7 +70,7 @@ As [evidências locais finais](docs/08-testes/validacao-local-final.md) registra
 - T14: trace atravessou API → Outbox → Worker → RabbitMQ → Worker → banco de Consolidação no Jaeger local.
 - T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0 dropped iterations, P95 4,372 ms e P99 6,052 ms.
 - T18: bootstrap local limpo com migrations, serviços saudáveis, token e primeiro POST 201.
-- Regressão histórica anterior às últimas correções de segurança/documentação: `restore` PASS, `build` PASS e **89 passed, 0 failed, 0 skipped**. A regressão da revisão atual deve ser executada novamente antes do fechamento e não é inferida desse resultado histórico.
+- Regressão local da revisão atual pelo golden path `tools/validate-local.sh`: `restore` PASS, `build` PASS e **90 passed, 0 failed, 0 skipped** (13 Transactions Unit + 1 Consolidation Unit + 1 Contract + 18 Transactions Integration + 55 Consolidation Integration + 2 E2E).
 
 Esses resultados são evidência **local**, não GitHub CI e não validação AWS. A [rastreabilidade de testes](docs/08-testes/production-grade-local-traceability.md) distingue estratégia normativa, cobertura automatizada e ensaios operacionais limitados.
 

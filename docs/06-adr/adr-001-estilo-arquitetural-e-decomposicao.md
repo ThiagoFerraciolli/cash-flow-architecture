@@ -12,4 +12,8 @@ Serviço Lançamentos: API e Worker publicador da Outbox. Serviço Consolidaçã
 
 Separar Workers permite escalar e reiniciar integração sem interromper HTTP. A referência AWS mantém réplicas por processo; local usa uma instância de cada processo. Falha de banco/Worker/API de Consolidação não deve bloquear commit em Lançamentos. Infraestrutura compartilhada ainda pode falhar; não se promete independência de região, rede ou identidade.
 
-Validação futura: T06 e T07 da estratégia de testes. A decisão está aprovada; o comportamento ainda será implementado e medido.
+## Evidência e limite
+
+A decomposição está implementada no ambiente local. O ensaio T06 demonstrou, de forma limitada, a propriedade central do RNF-001: `consolidation-api`, `consolidation-worker` e `postgres-consolidation` foram interrompidos enquanto Transactions permaneceu live/ready e aceitou dois lançamentos determinísticos (CREDIT 100 e DEBIT 20); após a restauração, a projeção convergiu para 100/20/80 com contagem 2.
+
+Esse ensaio não corresponde ao cenário normativo completo de 1.000 fatos a 10/s. T07 permanece parcialmente coberto por testes de falha/circuito, sem execução operacional integral do cenário normativo. A evidência detalhada está em `docs/08-testes/validacao-local-final.md` e `production-grade-local-traceability.md`.

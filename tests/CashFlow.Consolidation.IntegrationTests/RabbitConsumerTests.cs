@@ -1,8 +1,10 @@
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using CashFlow.Consolidation.Application;
 using CashFlow.Consolidation.Infrastructure;
+using CashFlow.Observability;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using RabbitMQ.Client;
@@ -55,6 +57,33 @@ public sealed class RabbitConsumerTests
             await Publish(channel, Payload());
             await WaitUntil(() => Task.FromResult(fake.Applied == 1));
             Assert.Null(await channel.BasicGetAsync(RabbitMqTransactionConsumer.MainQueue, true, Token));
+        });
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("not-a-traceparent", false)]
+    [InlineData("00-0123456789abcdef0123456789abcdef-0123456789abcdef-01", true)]
+    public async Task Trace_headers_are_optional_and_valid_remote_parent_is_continued(
+        string? traceparent, bool valid)
+    {
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == CashFlowTelemetry.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            SampleUsingParentId = (ref ActivityCreationOptions<string> _) => ActivitySamplingResult.AllData
+        };
+        ActivitySource.AddActivityListener(listener);
+        await WithRabbit(async (uri, channel, _) =>
+        {
+            var projection = new FakeProjection();
+            await using var running = await StartConsumer(uri, projection);
+            await Publish(channel, Payload(), traceparent: traceparent);
+            await WaitUntil(() => Task.FromResult(projection.Applied == 1));
+            Assert.NotNull(projection.ObservedTraceId);
+            if (valid) Assert.Equal("0123456789abcdef0123456789abcdef", projection.ObservedTraceId);
+            if (valid) Assert.Equal("0123456789abcdef", projection.ObservedParentSpanId);
+            else Assert.Equal("0000000000000000", projection.ObservedParentSpanId);
         });
     }
 
@@ -256,13 +285,14 @@ public sealed class RabbitConsumerTests
         businessDate = "2026-10-21"
     });
 
-    private static async Task Publish(IChannel channel, string payload, object? attempt = null)
+    private static async Task Publish(IChannel channel, string payload, object? attempt = null,
+        string? traceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
     {
         var headers = new Dictionary<string, object?>
         {
-            ["traceparent"] = Encoding.UTF8.GetBytes("00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"),
             ["tracestate"] = Encoding.UTF8.GetBytes("vendor=value")
         };
+        if (traceparent is not null) headers["traceparent"] = Encoding.UTF8.GetBytes(traceparent);
         if (attempt is not null) headers["retryAttempt"] = attempt;
         await channel.BasicPublishAsync("cashflow.events", "transaction.created.v1", mandatory: true,
             basicProperties: new BasicProperties
@@ -355,11 +385,15 @@ public sealed class RabbitConsumerTests
         private int _attempts;
         public int Applied => Volatile.Read(ref _applied);
         public int Attempts => Volatile.Read(ref _attempts);
+        public string? ObservedTraceId { get; private set; }
+        public string? ObservedParentSpanId { get; private set; }
         public Task<ApplyTransactionResult> ApplyAsync(TransactionCreatedFact fact, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _attempts);
             if (!Available) throw new NpgsqlException("simulated database outage");
             if (Failure is not null) throw Failure;
+            ObservedTraceId = Activity.Current?.TraceId.ToString();
+            ObservedParentSpanId = Activity.Current?.ParentSpanId.ToString();
             Interlocked.Increment(ref _applied);
             return Task.FromResult(ApplyTransactionResult.Applied);
         }

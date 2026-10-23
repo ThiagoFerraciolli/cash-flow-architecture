@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../../BuildingBlocks/CashFlow.Observability/CashFlow.Observability.csproj" />
     <ProjectReference Include="../CashFlow.Consolidation.Application/CashFlow.Consolidation.Application.csproj" />
     <ProjectReference Include="../CashFlow.Consolidation.Infrastructure/CashFlow.Consolidation.Infrastructure.csproj" />
   </ItemGroup>

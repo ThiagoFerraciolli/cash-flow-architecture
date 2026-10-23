@@ -2,15 +2,15 @@
 
 ## Autoridade, segurança e registro
 
-A ferramenta administrativa futura será executada fora das APIs públicas por operador autenticado. Usa leitura da base de Lançamentos e escrita restrita na base de Consolidação; credenciais próprias, temporárias na AWS, sem conceder acesso cruzado aos serviços de negócio. Cada execução registra runId, operador, motivo, horários, snapshot, gerações, contagens, somas, resultado e erros sanitizados. Reconciliação e rebuild da projeção não interrompem o registro de lançamentos. Restore da própria fonte é exceção: exige indisponibilidade controlada de escrita para definir um corte seguro.
+A ferramenta administrativa local `tools/CashFlow.Recovery` é executada fora das APIs públicas. Lê um snapshot somente leitura da base de Lançamentos e escreve uma geração nova apenas na base de Consolidação. Não altera dados autoritativos de Transactions. A operação local foi demonstrada em T10; automação de reconciliação contínua, trilha operacional completa e credenciais temporárias AWS descritas nas etapas abaixo permanecem arquitetura-alvo. Rebuild da projeção não interrompe o registro de lançamentos. Restore da própria fonte é exceção: exige indisponibilidade controlada de escrita para definir um corte seguro.
 
 ## Controle persistente
 
-`projection_control` possui uma única linha: `active_generation_id`, `maintenance`, `maintenance_run_id`, `maintenance_started_at`. Todo consumidor inicia transação, obtém `FOR SHARE` nessa linha e verifica `maintenance` antes de qualquer efeito. A trava é mantida até commit. O operador usa `FOR UPDATE` para ativar manutenção; aguarda transações em andamento e impede novas alterações. Workers que encontrem manutenção não aplicam nem confirmam mensagens; pausam recebimentos. Entregas já em voo são liberadas para reentrega pelo adaptador sem contabilizar erro financeiro.
+`projection_control` possui uma única linha com `active_generation_id`, `maintenance`, `maintenance_run_id`, `maintenance_started_at` e `maintenance_expires_at`. O Recovery adquire a manutenção por `UPDATE` condicional atômico; o PostgreSQL usa `clock_timestamp()` como tempo autoritativo. Todo consumidor inicia transação, obtém `FOR SHARE` nessa linha e verifica se a lease de manutenção ainda é válida antes de qualquer efeito. A trava é mantida até commit. Workers que encontrem lease válida não aplicam nem confirmam mensagens; pausam recebimentos. Após a expiração, o Worker trata a manutenção como inativa e pode retomar.
 
-O estado de manutenção sobrevive a reinícios e não expira automaticamente. Timeout de lock é 30 s; não obtê-lo aborta a tentativa e exige investigação. Um runId é proprietário da operação; outra execução não pode sobrescrever uma manutenção ativa.
+A lease local dura 60 s e é renovada a cada 15 s durante o rebuild. Somente o token proprietário pode renová-la, liberá-la ou ativar a geração; uma lease válida impede outro Recovery. Após morte abrupta do processo, ela expira e outro dono pode adquiri-la sem intervenção manual no banco. O comando de rebuild não reinicia automaticamente: o operador deve iniciar outra execução. O timeout de lock de 30 s e o registro operacional completo descritos na especificação-alvo não são evidência de configuração local executada.
 
-## Reconciliação consistente
+## Reconciliação consistente — especificação-alvo
 
 1. Ativar manutenção e aguardar o escoamento das transações de consumo pelo protocolo acima. Lançamentos e publicador continuam.
 2. Abrir transação somente leitura `REPEATABLE READ` em Lançamentos. Exportar todos os fatos visíveis, incluindo transactionId, creationEventId, data, tipo e valor, para artefato temporário criptografado, acessível apenas à operação. Registrar contagem e hash do conjunto ordenado; fechar a transação após a exportação.
@@ -21,7 +21,9 @@ O estado de manutenção sobrevive a reinícios e não expira automaticamente. T
 
 A pausa anterior ao snapshot impede que a comparação confunda efeitos processados depois do corte com inconsistência. Novos lançamentos após o snapshot ficam fora da comparação e serão integrados normalmente. A operação diária deve durar menos de 5 min para o conjunto de referência de 1 milhão de fatos; se exceder, alertar e revisar dimensionamento. Projeção continua consultável e marcada como em reconstrução/manutenção.
 
-## Reconstrução integral por geração
+## Reconstrução integral por geração — procedimento normativo
+
+Os passos abaixo incluem manifesto durável, retenção e reconciliação posterior projetados. A ferramenta local implementa snapshot somente leitura, construção e verificação da geração, lease renovável com fencing e ativação atômica; a [rastreabilidade T10–T12](../08-testes/production-grade-local-traceability.md) delimita a evidência executada.
 
 1. Iniciar manutenção pelo protocolo anterior. Se já ativa pelo mesmo runId após crash, verificar registros e retomar de etapa segura; outro runId exige encerramento auditado da operação anterior.
 2. Produzir snapshot consistente da fonte conforme reconciliação. Persistir manifesto e estado `SNAPSHOT_READY`; se o snapshot ficar incompleto, descartá-lo e obter outro mantendo manutenção.
@@ -33,7 +35,7 @@ A pausa anterior ao snapshot impede que a comparação confunda efeitos processa
 
 A geração anterior fica somente leitura por 7 dias e é excluída apenas quando inativa e sem execução dependente. Nunca apagar identidades da geração ativa. Antes da troca, abortar permite voltar ao consumo da geração antiga. Depois da troca e retomada, reversão exige outra reconstrução; reativar geração antiga perderia efeitos novos já confirmados.
 
-Se ocorrer crash antes da troca, a manutenção permanece e a API mostra projeção antiga. Se ocorrer depois do commit, geração e manutenção refletem a troca completa. O operador identifica o estado pelo manifesto; não repete uma troca às cegas. Planejar espaço para duas gerações e o snapshot; remover artefato temporário até 24 h após encerramento.
+Se ocorrer crash antes da troca, a geração antiga permanece ativa; a lease de manutenção expira, permitindo retomada do Worker e nova aquisição pelo Recovery. Se ocorrer depois do commit, geração e liberação da manutenção refletem a troca completa. A retomada do comando é iniciada pelo operador. O restante deste procedimento, incluindo manifesto operacional e retenção de artefatos, representa a especificação-alvo; não foi integralmente demonstrado no ensaio T10. Planejar espaço para duas gerações e o snapshot.
 
 ## DLQ, Outbox suspensa e expiração
 

@@ -1,11 +1,13 @@
 using CashFlow.Consolidation.Application;
 using CashFlow.Consolidation.Infrastructure;
+using CashFlow.Observability;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddCashFlowObservability("cashflow-consolidation-worker");
 builder.Host.ConfigureHostOptions(options => options.ShutdownTimeout = TimeSpan.FromSeconds(30));
 builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Consolidation") ??
     throw new InvalidOperationException("ConnectionStrings:Consolidation is required.")));
@@ -28,6 +30,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = registration => registration.Tags.Contains("ready")
 });
+app.MapCashFlowMetrics();
 app.Run();
 
 internal sealed class ConsolidationConsumerService(RabbitMqTransactionConsumer consumer) : BackgroundService

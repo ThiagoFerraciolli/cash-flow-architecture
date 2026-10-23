@@ -1,0 +1,23 @@
+# Rastreabilidade da extensão local
+
+Este registro separa a [estratégia normativa T01–T20](../05-arquitetura-software/estrategia-testes.md), a cobertura automatizada e a evidência operacional efetivamente executada no Docker Compose local. `PARTIAL` indica que o cenário normativo mais amplo não foi integralmente ensaiado. Não houve execução em AWS.
+
+| Cenário | Cobertura nesta branch | Evidência executada e limite |
+|---|---|---|
+| T01–T05 | AUTOMATED | Suíte .NET com PostgreSQL/RabbitMQ reais: HTTP, Outbox, projeção, concorrência e idempotência; E2E local. |
+| T06 | OPERATIONALLY EXECUTED / PASS, PARTIAL | `tests/operational/t06_transactions_independent.py`: Consolidation API, Worker e PostgreSQL parados; Transactions live/ready HTTP 200; CREDIT e DEBIT HTTP 201; após retorno, 100/20/80, contagem 2. Não executou 1.000 fatos a 10/s. |
+| T07 | PARTIAL | Testes de circuito, falha de publicação e retomada; cenário operacional completo de outage do broker não executado nesta branch. |
+| T08 | AUTOMATED | Testes de lease/publicação e crash após commit antes do ACK com redelivery. |
+| T09 | AUTOMATED + OPERATIONALLY EXECUTED / PASS, PARTIAL | Testes de retry/DLQ e `tests/operational/t09_retry_dlq.py`: mensagem inválida roteada, DLQ +1, `message_id` encontrado, projeção inalterada. Redrive completo não executado. |
+| T10–T12 | AUTOMATED + T10 OPERATIONALLY EXECUTED / PASS, PARTIAL | `tests/operational/t10_rebuild.py`: migration 002 aplicada, APIs/Worker saudáveis, POST 100/20, geração ativa alterada, data isolada com 100/20/80 e contagem 2. `RecoveryTests` cobre sucesso, falha antes de ativar, exclusão e expiração da lease, tomada de posse e fencing; teste do Worker cobre retomada após expiração. Não demonstra toda a reconciliação T10, crash windows T11 nem retenção T12. |
+| T13 | OPERATIONALLY EXECUTED / PASS local, PARTIAL | Sem token: escrita 401; `cashflow-reader` escrevendo: 403; `cashflow-demo` escrevendo: 201; `cashflow-reader` lendo Consolidation: 200. Testes automatizados cobrem JWT, issuer, cliente e permissões. Cognito, rotação e segurança AWS não executados. |
+| T14 | OPERATIONALLY EXECUTED / PASS local, PARTIAL | `/metrics` expôs métricas; Jaeger recebeu traces dos quatro processos; trace transacional cruzou API → DB/Outbox → publicador → RabbitMQ → consumidor → DB. GET posterior da Consolidation API é requisição independente. Sem plataforma completa de observabilidade de produção. |
+| T15 | OPERATIONALLY EXECUTED / PASS local, PARTIAL | Último ensaio limitado: warm-up 10 s a 10 req/s; 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0% e 0 dropped; P50 2,964 ms, P95 4,372 ms, P99 6,052 ms. Projeção estática: 100/20/80, contagem 2. Não executou 10 min/30.000 requests/100.000 fatos. |
+| T16 | NOT EXECUTED | Backlog de 10.000 eventos não ensaiado. |
+| T17 | N/A LOCAL | Restore e disponibilidade AWS não ensaiados; infraestrutura cloud não provisionada. |
+| T18 | OPERATIONALLY EXECUTED / PASS local, PARTIAL | Inicialização sem `runtime-data`; quatro imagens construídas; bancos, RabbitMQ, Keycloak, Jaeger, APIs e Workers saudáveis; dois jobs de migration exit 0; APIs live/ready; token obtido; primeiro POST CREDIT 100 HTTP 201. O requisito normativo de execução por terceiro independente não foi demonstrado. |
+| T19–T20 | AUTOMATED, PARTIAL | Testes de contratos e estrutura de projetos; não representam todos os cenários operacionais do mapa. |
+
+O Recovery administrativo lê `financial_transactions` em snapshot PostgreSQL somente leitura, constrói e verifica uma nova geração e só então a ativa. `projection_control` usa token de ownership, `maintenance_started_at` e `maintenance_expires_at`; o PostgreSQL é a fonte do tempo. A lease dura 60 s e é renovada a cada 15 s. Renovação, liberação e ativação exigem dono válido; a troca da geração e a liberação ocorrem em uma transação. Se o processo morrer, a lease expira, o Worker retoma e outro Recovery pode adquiri-la. O rebuild administrativo precisa ser reiniciado pelo operador; não há restart automático nem reconciliação contínua. Jaeger all-in-one mantém traces em memória; as aplicações expõem métricas Prometheus diretamente, sem servidor Prometheus.
+
+Suítes locais: **84 passed / 0 failed / 0 skipped** confirmados pelo usuário antes do endurecimento final da lease; **89 passed / 0 failed / 0 skipped** registrados por Codex depois dele, ainda pendentes de repetição na regressão final pelo usuário. Detalhes dos ensaios em [validação local](validacao-local-final.md). Esses números não são resultado de GitHub CI.

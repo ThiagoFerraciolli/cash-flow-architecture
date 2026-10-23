@@ -24,13 +24,13 @@ A cardinalidade da Outbox considera a limpeza posterior; no commit de criação 
 
 | Tabela | Chaves e dados principais |
 |---|---|
-| projection_control | Linha única; active_generation_id; maintenance; maintenance_run_id; maintenance_started_at |
+| projection_control | Linha única; active_generation_id; maintenance; maintenance_run_id; maintenance_started_at; maintenance_expires_at (migration 002) |
 | projection_generations | generation_id PK; status; created_at; activated_at; snapshot_manifest |
 | daily_consolidations | PK (generation_id, business_date); total_credits numeric(28,2); total_debits numeric(28,2); transaction_count bigint; last_updated_at |
 | processed_transactions | PK (generation_id, transaction_id); UNIQUE (generation_id, event_id); business_date; type; amount; fact_hash; processed_at |
-| recovery_runs | run_id PK; operador; motivo; estado; geração anterior/nova; manifesto; contagens; hashes; horários |
+| recovery_runs (alvo futuro) | run_id PK; operador; motivo; estado; geração anterior/nova; manifesto; contagens; hashes; horários; não criada pelas migrations locais |
 
-A migration inicial cria uma geração vazia ACTIVE e a linha única de controle apontando para ela, com maintenance=false.
+A migration inicial cria uma geração vazia ACTIVE e a linha única de controle apontando para ela, com maintenance=false; a segunda acrescenta a expiração da lease. O Recovery local usa essa linha para ownership e fencing. A trilha `recovery_runs` completa permanece projetada.
 
 `ProcessedTransaction` é o registro durável do efeito financeiro e substitui a proposta anterior de deduplicação somente por eventId. Reconstrução popula totais e identidades na mesma geração. Retenção da geração ativa acompanha os fatos; gerações inativas ficam 7 dias para auditoria e são removidas somente após encerramento operacional.
 

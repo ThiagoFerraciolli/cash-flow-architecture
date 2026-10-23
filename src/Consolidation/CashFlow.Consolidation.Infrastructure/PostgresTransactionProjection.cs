@@ -15,7 +15,7 @@ public sealed class PostgresTransactionProjection(NpgsqlDataSource source) : ITr
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, timeout.Token);
         Guid generation;
         await using (var control = new NpgsqlCommand(
-            "SELECT active_generation_id, maintenance FROM projection_control WHERE singleton = true FOR SHARE",
+            "SELECT active_generation_id, maintenance AND maintenance_expires_at > clock_timestamp() FROM projection_control WHERE singleton = true FOR SHARE",
             connection, transaction))
         {
             await using var reader = await control.ExecuteReaderAsync(timeout.Token);
@@ -99,7 +99,8 @@ public sealed class PostgresTransactionProjection(NpgsqlDataSource source) : ITr
         await using var command = source.CreateCommand("""
             SELECT 1 FROM projection_control c
             JOIN projection_generations g ON g.generation_id = c.active_generation_id
-            WHERE c.singleton = true AND g.status = 'ACTIVE' AND c.maintenance = false
+            WHERE c.singleton = true AND g.status = 'ACTIVE'
+              AND (c.maintenance = false OR c.maintenance_expires_at <= clock_timestamp())
               AND to_regclass('daily_consolidations') IS NOT NULL
               AND to_regclass('processed_transactions') IS NOT NULL
             """);

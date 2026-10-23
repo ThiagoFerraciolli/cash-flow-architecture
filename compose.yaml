@@ -76,6 +76,17 @@ services:
       retries: 20
     restart: unless-stopped
 
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:13133/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   identity:
     image: quay.io/keycloak/keycloak:26.8.1
     command: ["start-dev", "--import-realm"]
@@ -112,11 +123,14 @@ services:
       Authentication__Audience: cashflow-api
       Authentication__AllowedClientIds: ${CASHFLOW_ALLOWED_CLIENT_IDS:-cashflow-demo,cashflow-reader}
       Authentication__RequireHttpsMetadata: "false"
+      Observability__OtlpEndpoint: http://jaeger:4318/v1/traces
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      jaeger:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
       interval: 5s
@@ -131,10 +145,13 @@ services:
     environment:
       ConnectionStrings__Transactions: Host=postgres;Port=5432;Database=cashflow;Username=cashflow;Password=${POSTGRES_PASSWORD:-cashflow_local_only}
       RabbitMq__Uri: amqp://cashflow:${RABBITMQ_PASSWORD:-cashflow_local_only}@rabbitmq:5672/
+      Observability__OtlpEndpoint: http://jaeger:4318/v1/traces
     depends_on:
       migrate:
         condition: service_completed_successfully
       rabbitmq:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
@@ -150,10 +167,13 @@ services:
     environment:
       ConnectionStrings__Consolidation: Host=postgres-consolidation;Port=5432;Database=consolidation;Username=consolidation;Password=${CONSOLIDATION_POSTGRES_PASSWORD:-consolidation_local_only}
       RabbitMq__Uri: amqp://cashflow:${RABBITMQ_PASSWORD:-cashflow_local_only}@rabbitmq:5672/
+      Observability__OtlpEndpoint: http://jaeger:4318/v1/traces
     depends_on:
       migrate-consolidation:
         condition: service_completed_successfully
       rabbitmq:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
@@ -173,11 +193,14 @@ services:
       Authentication__Audience: cashflow-api
       Authentication__AllowedClientIds: ${CASHFLOW_ALLOWED_CLIENT_IDS:-cashflow-demo,cashflow-reader}
       Authentication__RequireHttpsMetadata: "false"
+      Observability__OtlpEndpoint: http://jaeger:4318/v1/traces
     ports:
       - "127.0.0.1:8082:8080"
     depends_on:
       migrate-consolidation:
         condition: service_completed_successfully
+      jaeger:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
       interval: 5s

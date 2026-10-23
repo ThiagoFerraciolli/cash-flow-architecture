@@ -1,6 +1,6 @@
 # Estratégia de testes e critérios de aceite
 
-A estratégia cobre os PDFs e os riscos arquiteturais. Ferramentas previstas: xUnit, WebApplicationFactory, Testcontainers, Docker e k6. Não usar provider in-memory como evidência de transações PostgreSQL.
+A estratégia cobre os PDFs e os riscos arquiteturais. Os cenários e volumes abaixo são **normativos/planejados** e não constituem relato de execução. Ferramentas previstas: xUnit, WebApplicationFactory, Testcontainers, Docker e k6. Não usar provider in-memory como evidência de transações PostgreSQL. As execuções locais limitadas e sua cobertura automatizada estão registradas separadamente em [rastreabilidade](../08-testes/production-grade-local-traceability.md) e [evidências](../08-testes/validacao-local-final.md).
 
 ## Casos rastreáveis
 
@@ -47,6 +47,6 @@ RabbitMQ: T01–T16 e T18–T20 localmente, incluindo confirms, mandatory sem ro
 
 ## Evidências e aprovação de execução
 
-Na implementação criar `docs/08-testes/` com relatório por caso: commit, data, ambiente, configuração, versões/digests, comando, massa/seed, duração, resultado esperado/obtido, métricas brutas e logs sanitizados. Um caso é aprovado somente por evidência reproduzível; falhas ficam abertas com impacto e correção. A matriz documental permanece distinta do resultado de execução.
+Os relatórios em `docs/08-testes/` devem registrar, quando disponíveis, commit, data, ambiente, configuração, versões/digests, comando, massa/seed, duração, resultado esperado/obtido, métricas brutas e logs sanitizados. Um caso normativo só é integralmente aprovado por evidência reproduzível correspondente; um ensaio local limitado pode demonstrar o requisito explícito do case sem comprovar todos os volumes e modos de falha desta estratégia. A matriz documental permanece distinta do resultado de execução.
 
 Referência: [executor de taxa constante do k6](https://grafana.com/docs/k6/latest/using-k6/scenarios/executors/constant-arrival-rate/).

@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 COPY Directory.Build.props ./
+COPY src/BuildingBlocks/ ./src/BuildingBlocks/
 COPY src/Transactions/ ./src/Transactions/
 RUN dotnet restore src/Transactions/CashFlow.Transactions.Api/CashFlow.Transactions.Api.csproj --locked-mode
 RUN dotnet publish src/Transactions/CashFlow.Transactions.Api/CashFlow.Transactions.Api.csproj \

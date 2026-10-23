@@ -4,6 +4,7 @@ using System.Text.Json;
 using CashFlow.Transactions.Application;
 using CashFlow.Transactions.Domain;
 using CashFlow.Transactions.Infrastructure;
+using CashFlow.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -12,6 +13,7 @@ using Npgsql;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddCashFlowObservability("cashflow-transactions-api");
 var authority = builder.Configuration["Authentication:Authority"] ?? throw new InvalidOperationException("Authentication:Authority is required.");
 var issuer = builder.Configuration["Authentication:Issuer"] ?? throw new InvalidOperationException("Authentication:Issuer is required.");
 var audience = builder.Configuration["Authentication:Audience"] ?? throw new InvalidOperationException("Authentication:Audience is required.");
@@ -87,6 +89,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = x => x.Tags.Contains("live") });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = x => x.Tags.Contains("ready") });
+app.MapCashFlowMetrics();
 
 app.MapPost("/transactions", async (HttpContext http, TransactionService service,
     ValidatedClientIdentityAdapter identityAdapter, CancellationToken ct) =>

@@ -13,7 +13,7 @@ public sealed class PostgresConsolidationQuery(NpgsqlDataSource source) : IConso
         Guid generation;
         bool maintenance;
         await using (var control = new NpgsqlCommand(
-            "SELECT active_generation_id, maintenance FROM projection_control WHERE singleton = true",
+            "SELECT active_generation_id, maintenance AND maintenance_expires_at > clock_timestamp() FROM projection_control WHERE singleton = true",
             connection, transaction))
         await using (var reader = await control.ExecuteReaderAsync(cancellationToken))
         {

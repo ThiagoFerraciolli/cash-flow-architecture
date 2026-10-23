@@ -26,6 +26,8 @@ Regras de API: contratos-http. Evento: ADR-008. Idempotência: ADR-005. Estraté
 
 ## Estado da evidência
 
-As execuções locais concluídas e seus limites estão registradas em `docs/08-testes/validacao-local-final.md` e `production-grade-local-traceability.md`. A regressão final registrada possui 89 testes aprovados, sem falhas ou skips. T06, T09, T10, T13, T14, T15 e T18 possuem evidência operacional local nos limites documentados. Os cenários T01–T20 continuam sendo o mapa normativo de testes e não devem ser interpretados como uma suíte operacional integralmente executada. AWS/SQS/T17 permanecem arquitetura e homologação futuras.
+As execuções locais concluídas e seus limites estão registradas em `docs/08-testes/validacao-local-final.md` e `production-grade-local-traceability.md`. O **gate automatizado local corrente, executado em 23/10/2026, possui 90 testes aprovados, 0 falhas e 0 skips, com build 0 warnings / 0 errors**. Inclui testes unitários, contrato, integração e E2E da topologia local. Contagens anteriores são apenas histórico.
+
+T06, T09, T10, T13, T14, T15 e T18 possuem evidência operacional local nos limites documentados. Os cenários T01–T20 continuam sendo o mapa normativo de testes e não devem ser interpretados como uma suíte operacional integralmente executada. T07 completo não foi executado. AWS/SQS/T17 permanecem arquitetura e homologação futuras.
 
 Novas evidências devem registrar ambiente, comando/roteiro, resultado e limite do que foi demonstrado. Documentação arquitetural não substitui evidência executada.

@@ -264,7 +264,8 @@
         "type": "Project",
         "dependencies": {
           "CashFlow.Consolidation.Application": "[1.0.0, )",
-          "CashFlow.Consolidation.Infrastructure": "[1.0.0, )"
+          "CashFlow.Consolidation.Infrastructure": "[1.0.0, )",
+          "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.0, )"
         }
       },
       "cashflow.consolidation.application": {

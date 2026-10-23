@@ -11,7 +11,7 @@ Este documento separa o que foi implementado, o que foi demonstrado localmente e
 
 | Capacidade | Classificação final | Evidência / limite |
 |---|---|---|
-| Estrutura .NET, APIs e Workers | Implementado e demonstrado localmente | build local e suíte final de 89 testes |
+| Estrutura .NET, APIs e Workers | Implementado e demonstrado localmente | build 0 warnings/0 errors e suíte corrente de 90 testes |
 | Transactions API e PostgreSQL | Implementado e demonstrado localmente | criação/consulta, E2E e testes |
 | Idempotência HTTP | Implementado e demonstrado localmente | replay e conflito cobertos por testes |
 | BusinessDate e regras monetárias | Implementado e demonstrado localmente | testes automatizados |
@@ -23,7 +23,7 @@ Este documento separa o que foi implementado, o que foi demonstrado localmente e
 | Health/readiness | Implementado e demonstrado localmente | endpoints locais e T06/T18 |
 | Requisito de pico do consolidado: 50 req/s e perda/falha ≤ 5% | Demonstrado localmente em janela limitada | T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas e 0 dropped iterations; não é benchmark AWS nem prova ilimitada de capacidade |
 | Retry, DLQ e circuit breaker locais | Implementado; evidência operacional parcial | testes automatizados; T09 demonstrou mensagem inválida → DLQ; redrive operacional completo não executado |
-| Autenticação/autorização local | Implementado e demonstrado localmente | Keycloak/JWT; T13 e E2E autenticado |
+| Autenticação/autorização local | Implementado e demonstrado localmente | Keycloak/JWT; permissões de escrita/leitura, T13 e E2E autenticado |
 | Observabilidade local | Implementado e demonstrado localmente | logs estruturados, OpenTelemetry, `/metrics`, Jaeger e T14 |
 | Recovery administrativo por gerações | Implementado e demonstrado localmente | T10 e testes de lease/fencing; operador reinicia rebuild após crash |
 | OpenAPI | Evolução | contratos HTTP estão documentados; geração/publicação OpenAPI não foi implementada e não é requisito obrigatório do desafio |
@@ -38,7 +38,7 @@ Este documento separa o que foi implementado, o que foi demonstrado localmente e
 
 ## Evidência de testes
 
-A estratégia T01–T20 é um mapa normativo e não uma lista de vinte cenários integralmente executados. A cobertura efetiva está em [rastreabilidade de testes](../08-testes/production-grade-local-traceability.md). E2E e T06/T09/T10/T13/T14/T15/T18 executados localmente estão em [validação local final](../08-testes/validacao-local-final.md). A regressão final local registrou `dotnet restore --locked-mode` PASS, `dotnet build --no-restore` PASS e `dotnet test --no-build` com **89 passed, 0 failed, 0 skipped**. Não houve GitHub CI nem execução AWS.
+A estratégia T01–T20 é um mapa normativo e não uma lista de vinte cenários integralmente executados. A cobertura efetiva está em [rastreabilidade de testes](../08-testes/production-grade-local-traceability.md). E2E e T06/T09/T10/T13/T14/T15/T18 executados localmente estão em [validação local final](../08-testes/validacao-local-final.md). Em 23/10/2026, o golden path `sh tools/validate-local.sh` registrou `dotnet restore --locked-mode` PASS, `dotnet build --no-restore` PASS com **0 warnings / 0 errors** e `dotnet test --no-build` com **90 passed, 0 failed, 0 skipped**. Não houve GitHub CI nem execução AWS.
 
 ## Regra de conclusão
 

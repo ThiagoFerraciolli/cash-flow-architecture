@@ -1,6 +1,6 @@
 # Contratos HTTP
 
-Contrato a implementar em ASP.NET Core e publicar futuramente como OpenAPI. Exemplos são especificação, não respostas de uma aplicação existente.
+Este documento é a fonte normativa dos contratos HTTP implementados pelas APIs ASP.NET Core da entrega local. Os exemplos abaixo descrevem o comportamento esperado e são exercitados por testes automatizados e ensaios locais nos limites registrados em `docs/08-testes`. A entrega não publica especificação OpenAPI/Swagger; isso não é requisito obrigatório do desafio e permanece uma possível evolução de documentação de API.
 
 ## Convenções
 
@@ -62,3 +62,7 @@ Sem linha de projeção: 200, valores e contagem zero, lastUpdatedAt null, mesma
 `application/problem+json` com type, title, status, detail sanitizado e correlationId. Códigos: 400 validação; 401 token inválido/ausente; 403 permissão insuficiente; 404 lançamento inexistente; 409 conflito de idempotência/geração; 413 corpo excedido; 429 limite de taxa; 503 dependência local indisponível; 500 erro inesperado. Retentativas reutilizam a chave original e aplicam backoff. 429 inclui Retry-After.
 
 A API de Lançamentos não consulta Consolidação, broker ou IdP remoto a cada chamada: valida JWT e usa JWKS em cache. Chave de assinatura desconhecida exige atualização controlada; falha sem chave confiável nega acesso, nunca ignora validação. Health/readiness ficam fora das rotas públicas e não expõem informações sensíveis.
+
+## Estado de validação
+
+Os contratos acima são a especificação da entrega. A existência de uma regra neste documento não significa que cada combinação tenha sido exercitada operacionalmente. Testes automatizados e ensaios executados estão registrados separadamente em [validação local final](../08-testes/validacao-local-final.md) e [rastreabilidade da entrega](../08-testes/production-grade-local-traceability.md).

@@ -3,22 +3,26 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-if [ ! -f .env ]; then
+# .env.example is the executable baseline. A local .env is an optional override,
+# so an older/partial .env does not remove required defaults from validation.
+set -a
+# shellcheck disable=SC1091
+. ./.env.example
+if [ -f .env ]; then
+  # shellcheck disable=SC1091
+  . ./.env
+else
   cp .env.example .env
   echo "Created .env from .env.example (local-only credentials)."
 fi
-
-set -a
-# shellcheck disable=SC1091
-. ./.env
 set +a
 
-: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}"
-: "${CONSOLIDATION_POSTGRES_PASSWORD:?CONSOLIDATION_POSTGRES_PASSWORD is required in .env}"
-: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required in .env}"
-: "${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required in .env}"
-: "${DEMO_CLIENT_SECRET:?DEMO_CLIENT_SECRET is required in .env}"
-: "${READER_CLIENT_SECRET:?READER_CLIENT_SECRET is required in .env}"
+: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+: "${CONSOLIDATION_POSTGRES_PASSWORD:?CONSOLIDATION_POSTGRES_PASSWORD is required}"
+: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}"
+: "${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}"
+: "${DEMO_CLIENT_SECRET:?DEMO_CLIENT_SECRET is required}"
+: "${READER_CLIENT_SECRET:?READER_CLIENT_SECRET is required}"
 
 export CASHFLOW_TEST_POSTGRES="Host=127.0.0.1;Port=5433;Database=cashflow;Username=cashflow;Password=${POSTGRES_PASSWORD}"
 export CASHFLOW_TEST_CONSOLIDATION_POSTGRES="Host=127.0.0.1;Port=5434;Database=consolidation;Username=consolidation;Password=${CONSOLIDATION_POSTGRES_PASSWORD}"

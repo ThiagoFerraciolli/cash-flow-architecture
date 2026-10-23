@@ -41,4 +41,4 @@ Resultados observados no ambiente **Docker Compose local real**, inicialmente na
 
 ## Suíte de regressão
 
-Após o T15 inicial, a suíte com PostgreSQL e RabbitMQ reais teve **80 passed, 0 failed, 0 skipped**. Antes do endurecimento final da lease, o usuário confirmou **84 passed, 0 failed, 0 skipped**. Após as mudanças de lease/fencing, Codex executou a suíte completa com ambiente de integração real e registrou **89 passed, 0 failed, 0 skipped**; este último resultado ainda será repetido na regressão final pelo usuário.
+Após o T15 inicial, a suíte com PostgreSQL e RabbitMQ reais teve **80 passed, 0 failed, 0 skipped**. Antes do endurecimento final da lease, o usuário confirmou **84 passed, 0 failed, 0 skipped**. Após as mudanças de lease/fencing e o bootstrap limpo, a regressão final foi executada novamente pelo usuário: `dotnet restore --locked-mode` **PASS**, `dotnet build --no-restore` **PASS** e `dotnet test --no-build` com **89 passed, 0 failed, 0 skipped**. O resultado é evidência de execução local; não corresponde a GitHub CI.

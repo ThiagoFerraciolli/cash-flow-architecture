@@ -11,7 +11,7 @@ Legenda: **D** = cobertura documental; **I** = implementação; **E** = execuç�
 | Desenho completo — Soluções p.2; Software p.2 | DAS/C4/views/AWS/local/operação | D | Núcleo distribuído implementado localmente; topologia AWS projetada |
 | Justificativas — Soluções p.2 | ADR-001 a ADR-011 | D | Documentado |
 | Linguagem dominada — Soluções p.2; C# — Software p.2 | SDD | D | I: aplicação C# |
-| Testes — ambos p.2 | estratégia-testes/validação local final | D | E local: E2E real; suíte pré-lease 84/0/0 confirmada pelo usuário e pós-lease 89/0/0 registrada por Codex, pendente de regressão final pelo usuário; cenários AWS reais são H |
+| Testes — ambos p.2 | estratégia-testes/validação local final | D | E local: E2E real; suíte pré-lease 84/0/0 e regressão final pós-lease 89/0/0 confirmadas pelo usuário; cenários AWS reais são H |
 | README e execução local — ambos p.2 | README/execucao-local | D | D + I + E local: ambiente e comandos reproduzíveis |
 | Repositório público — ambos p.2 | GitHub ThiagoFerraciolli/cash-flow-architecture | Confirmado público em 22/10/2026 via API | Reconfirmar acesso na entrega |
 | Documentação no repositório — ambos p.2 | README e docs | D | Versionada junto à implementação |

@@ -53,10 +53,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         }
     };
 });
-builder.Services.AddAuthorization(options => options.AddPolicy("transactions.write", policy =>
-    policy.RequireAuthenticatedUser().RequireAssertion(context =>
-        context.User.FindAll("permissions").Any(claim => claim.Value == "transactions.write") ||
-        context.User.FindAll("scope").Any(claim => claim.Value.Split(' ').Contains("cashflow/transactions.write")))));
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("transactions.write", policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
+        HasPermission(context.User, "transactions.write")));
+    options.AddPolicy("transactions.read", policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
+        HasPermission(context.User, "transactions.read")));
+});
 builder.Services.AddSingleton<ValidatedClientIdentityAdapter>();
 builder.Services.AddSingleton(TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Transactions:TimeZone"] ?? "America/Sao_Paulo"));
 builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Transactions") ??
@@ -134,7 +137,7 @@ app.MapGet("/transactions/{id:guid}", async (Guid id, TransactionService service
 {
     var transaction = await service.GetAsync(id, ct);
     return transaction is null ? Problem(404, "Transaction not found.") : Results.Ok(Dto(transaction));
-});
+}).RequireAuthorization("transactions.read");
 app.MapGet("/transactions", async (HttpContext http, TransactionService service, CancellationToken ct) =>
 {
     var query = http.Request.Query;
@@ -169,7 +172,7 @@ app.MapGet("/transactions", async (HttpContext http, TransactionService service,
     string? nextCursor = rows.Count > pageSize ? Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(
         new Cursor(from, to, type, pageSize, items[^1].BusinessDate, items[^1].Id))) : null;
     return Results.Ok(new { items = items.Select(Dto), nextCursor });
-});
+}).RequireAuthorization("transactions.read");
 app.Run();
 
 static IResult Problem(int status, string detail) => Results.Problem(statusCode: status, title: "Request failed", detail: detail);
@@ -177,6 +180,9 @@ static bool IsPersistenceUnavailable(Exception error) =>
     error is NpgsqlException and not PostgresException ||
     error is PostgresException postgres &&
     (postgres.SqlState.StartsWith("08", StringComparison.Ordinal) || postgres.SqlState is "57P01" or "57P02" or "57P03");
+static bool HasPermission(ClaimsPrincipal principal, string permission) =>
+    principal.FindAll("permissions").Any(claim => claim.Value == permission) ||
+    principal.FindAll("scope").Any(claim => claim.Value.Split(' ').Contains($"cashflow/{permission}"));
 static bool TryType(string? value, out TransactionType type)
 {
     type = value == "DEBIT" ? TransactionType.Debit : TransactionType.Credit;

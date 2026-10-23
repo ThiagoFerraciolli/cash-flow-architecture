@@ -4,22 +4,24 @@
 
 ## Decisão
 
-Combinar retentativas limitadas, isolamento de falhas, reconciliação consistente e reconstrução integral em nova geração. O algoritmo normativo está em [recuperação e reconciliação](../07-infraestrutura/recuperacao-e-reconciliacao.md); tempos e limites em [parâmetros](../07-infraestrutura/parametros-operacionais.md).
+Combinar retentativas limitadas, isolamento de falhas e reconstrução integral em nova geração. Reconciliação contínua e restore/failover completos permanecem capacidades operacionais de evolução. O procedimento e os limites estão em [recuperação e reconciliação](../07-infraestrutura/recuperacao-e-reconciliacao.md) e [parâmetros](../07-infraestrutura/parametros-operacionais.md).
 
-A Outbox usa reserva e suspensão controlada (ADR-004). Publicador e consumidor classificam falhas em três grupos: sistêmica de dependência, permanente atribuível ao item e isolada ainda indeterminada. Adaptadores implementam confirmação, retry e DLQ conforme ADR-010. Nenhum caminho de erro financeiro pode confirmar e descartar silenciosamente uma mensagem.
+A Outbox usa reserva e suspensão controlada (ADR-004). No corte local implementado, Transactions Worker classifica falhas de publicação e aplica circuit breaker para falhas sistêmicas do RabbitMQ; Consolidation Worker usa ACK após commit, retry técnico e DLQ para falhas tratáveis/permanentes. Nenhum caminho intencional de erro financeiro confirma e descarta silenciosamente uma mensagem.
 
-Falha sistêmica do banco, broker, rede, credencial ou quota abre circuit breaker e pausa novos recebimentos. No SQS, o adaptador estende a visibilidade das mensagens já recebidas dentro do limite do serviço e interrompe o polling; no RabbitMQ, cancela o consumidor e devolve a entrega uma vez, reabrindo-o somente após readiness da dependência. Esses eventos não consomem tentativas de aplicação. Uma mensagem inválida segue diretamente para DLQ; uma falha isolada e indeterminada usa retentativas limitadas. Se uma indisponibilidade longa ainda levar uma mensagem à DLQ por semântica do transporte, o redrive auditado permanece obrigatório e não há perda silenciosa.
+No RabbitMQ local, falha permanente de contrato pode seguir para DLQ e falhas isoladas usam retentativas limitadas. A evidência operacional T09 demonstrou somente o caminho de mensagem permanentemente inválida até a DLQ; redrive operacional completo não foi executado. Com indisponibilidade compartilhada do PostgreSQL de Consolidação, o consumidor pausa e deixa a mensagem recuperável no broker, retomando após readiness da dependência.
 
-A fila é transporte temporário. Expiração SQS, perda de volume local ou mensagem ausente são recuperáveis a partir dos lançamentos persistidos. Reconciliação não depende da existência da Outbox publicada. Deduplicação financeira ativa não expira.
+SQS Standard pertence apenas à arquitetura-alvo AWS. Visibilidade, polling, redrive e comportamento sob indisponibilidade descritos no ADR-010 são requisitos de um futuro adaptador SQS e precisam ser homologados em AWS antes de serem tratados como comportamento implementado.
 
-## Reconstrução aprovada
+A fila é transporte temporário. Perda ou expiração de transporte não deve ser a única fonte de recuperação: os lançamentos persistidos em Transactions são a fonte financeira. Deduplicação financeira ativa não expira no corte atual.
 
-Pausar processamento por controle persistente; manter Lançamentos aceitando escrita; obter snapshot consistente de todos os fatos; construir totais e identidades na geração nova; validar; trocar geração atomicamente; retomar consumo. Mensagens anteriores ao snapshot tornam-se duplicatas; posteriores aplicam normalmente. A pausa começa antes do snapshot para não perder efeitos já confirmados pelo consumidor durante a construção.
+## Reconstrução implementada localmente
+
+A ferramenta administrativa Recovery pausa o processamento por controle persistente com lease/fencing, mantém Transactions aceitando escrita, lê a fonte em snapshot PostgreSQL somente leitura, constrói e verifica uma geração nova e troca a geração ativa atomicamente. Se o processo morrer, a lease expira e o Worker volta a processar; o operador deve iniciar uma nova execução de Recovery. Não há restart automático do rebuild.
+
+T10 demonstrou localmente a troca de geração e a reconstrução de uma data isolada com CREDIT 100, DEBIT 20, saldo 80 e contagem 2. Testes automatizados cobrem expiração, tomada de posse e fencing da lease. Isso não equivale a demonstrar todos os cenários normativos T10–T12, reconciliação contínua, redrive ou restore AWS.
 
 ## Alternativas e consequências
 
-Replay exclusivo da fila foi rejeitado por retenção finita. Limpar projeção e deduplicação em produção foi rejeitado por janela de perda/duplicidade. Rebuild concorrente sem captura incremental foi rejeitado porque poderia perder eventos já confirmados. A pausa controlada é mais simples e verificável, ao custo de defasagem temporária e espaço para duas gerações.
+Replay exclusivo da fila foi rejeitado por retenção finita. Limpar projeção e deduplicação em produção foi rejeitado por janela de perda/duplicidade. Rebuild concorrente sem controle de manutenção foi rejeitado porque poderia perder efeitos já confirmados. A pausa controlada é mais simples e verificável, ao custo de defasagem temporária e espaço para duas gerações.
 
-A geração anterior serve para auditoria; não pode ser reativada depois da retomada sem nova reconstrução. Testes incluem falha do processo em cada etapa, evento em trânsito, expiração de fila, restauração de banco e comparação consistente.
-
-Restore da fonte financeira é uma operação distinta de rebuild da projeção: bloqueia novas escritas, isola a geração antiga do transporte, restaura Lançamentos, cria uma geração física nova de filas e reconstrói Consolidação antes de reabrir o tráfego. Mensagens da geração antiga nunca são aplicadas automaticamente à fonte restaurada. O procedimento normativo define a ordem e a evidência exigida.
+A geração anterior serve para auditoria e não deve ser reativada depois da retomada sem nova reconstrução. Restore da fonte financeira é uma operação distinta do rebuild da projeção e permanece procedimento arquitetural a ser ensaiado antes de uso produtivo.

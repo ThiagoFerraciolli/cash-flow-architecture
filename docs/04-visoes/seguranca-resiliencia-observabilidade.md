@@ -1,12 +1,14 @@
 # Visões de segurança, resiliência e observabilidade
 
-Controles especificados para implementação e verificação. A decisão normativa de identidade está no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md).
+Esta visão separa controles **implementados/demonstrados localmente** de controles da **arquitetura-alvo AWS**. A decisão normativa de identidade está no [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md).
 
 ## Segurança de consumo
 
-As APIs validam JWT; o ALB termina TLS e encaminha tráfego, sem assumir validação de bearer token. Keycloak atende o ambiente local e Cognito atende a AWS, ambos com OAuth 2.0 client credentials. Criação exige escrita e consultas exigem a permissão de leitura correspondente. Falta de autenticação retorna 401 e de permissão retorna 403. Claims, scopes, tempo de token, rotação e composição da identidade auditável são definidos exclusivamente no ADR-011. Este escopo é de cliente técnico e comerciante único; não oferece isolamento multi-tenant.
+As APIs locais validam JWT emitido pelo Keycloak e aplicam permissões por rota: criação exige `transactions.write`, consultas de lançamentos exigem `transactions.read` e consultas da consolidação exigem `consolidations.read`. Falta de autenticação retorna 401 e de permissão retorna 403. O fluxo local usa OAuth 2.0 client credentials. Claims, audience, issuer, tempo de token e composição da identidade auditável são definidos no ADR-011. Este escopo é de cliente técnico e comerciante único; não oferece isolamento multi-tenant.
 
-## Fronteiras e proteção
+Na arquitetura-alvo AWS, Cognito substitui o Keycloak como emissor e ALB/WAF compõem a borda. O ALB termina TLS e encaminha tráfego; a autorização bearer continua responsabilidade das APIs.
+
+## Fronteiras e proteção da arquitetura-alvo AWS
 
 ```mermaid
 flowchart LR
@@ -14,41 +16,44 @@ flowchart LR
     A -->|HTTPS privado| API[APIs: validacao JWT e permissoes]
     API -->|TLS com verificacao| DB[(RDS privado)]
     W[Workers com Task Role] -->|HTTPS SigV4| Q[SQS]
-    I[Cognito / Keycloak local] -. emissor confiavel .-> API
+    I[Cognito] -. emissor confiavel .-> API
 ```
 
-AWS: TLS 1.2+ externo, TLS ALB→tasks e verificação de certificado na conexão PostgreSQL. O ALB não fornece autenticação mútua do certificado do target; Security Groups e isolamento da rede completam a fronteira. Broker e APIs AWS via HTTPS. Bancos sem endpoint público, tasks sem IP público. Criptografia RDS/SQS/segredos por KMS; proibir transporte inseguro em políticas aplicáveis.
+O desenho AWS requer TLS 1.2+ externo, TLS ALB→tasks, verificação de certificado na conexão PostgreSQL, bancos sem endpoint público e tasks sem IP público. O ALB não fornece autenticação mútua do certificado do target; Security Groups e isolamento da rede completam a fronteira. RDS/SQS/segredos usam criptografia gerenciada/KMS conforme o recurso. Esses controles são arquitetura-alvo; não foram homologados em uma implantação AWS nesta entrega.
 
-Rate limit inicial por cliente: 100 req/s nas leituras com burst 200 e 20 req/s nas escritas com burst 40, aplicado por instância e documentado como limite local, não quota global. WAF limita abuso por IP e usa regras gerenciadas; referência inicial 20.000 requests/5 min por IP para não bloquear o ensaio de 50 req/s. Validar falsos positivos em homologação. Corpo, paginação e datas limitados no contrato; queries parametrizadas; CORS negado por padrão; APIs sem cookies de sessão.
+Rate limiting de borda e WAF pertencem ao desenho de produção. **A entrega local não implementa rate limiter HTTP/429 nas APIs.** Limites de corpo, paginação e datas são aplicados pelo contrato/código onde documentados; queries usam parâmetros e as APIs não dependem de cookies de sessão.
 
 ## Privilégios e segredos
 
-Cada processo tem credencial de banco própria, restrita às tabelas e operações necessárias. Conta de migration separada; API de consulta somente leitura. Publisher pode reservar/atualizar Outbox e enviar mensagens; não pode consumir. Consumer recebe/remove/ajusta visibilidade, grava projeção e lê controle; não opera redrive administrativo. Task Roles restritas a ARNs do ambiente; Execution Role de imagens/logs/segredos separada. KMS inclui GenerateDataKey/Decrypt conforme papel e uso de SSE-KMS, sem wildcard indiscriminado. Administrador de recuperação é identidade separada.
+Localmente, credenciais/configurações são separadas por componentes no Compose e os segredos de demonstração vêm do `.env`; são credenciais locais e não produtivas. A entrega não demonstra IAM AWS, KMS, Secrets Manager ou rotação de credenciais.
 
-Secrets Manager para senhas e OAuth secrets, rotação coordenada com pools de conexão; nenhuma chave AWS estática na aplicação. Imagens sem root, filesystem somente leitura quando compatível, varredura de dependências/imagens e atualização de patches. HTTP/AMQP sem TLS são exceção exclusivamente local em loopback/rede Docker isolada, com dados sintéticos e sem credenciais produtivas.
+Na arquitetura-alvo, cada processo deve receber privilégio mínimo: credenciais de banco por papel, migration separada, publisher autorizado apenas à publicação necessária, consumer autorizado ao consumo e projeção, e identidade administrativa distinta para Recovery. Task Roles devem ser restritas aos ARNs do ambiente; Execution Role de imagens/logs/segredos fica separada. Secrets Manager e KMS fazem parte desse desenho, sem chaves AWS estáticas na aplicação.
+
+HTTP/AMQP sem TLS são exceção exclusivamente local em loopback/rede Docker com dados sintéticos. Hardening de imagem, filesystem somente leitura, varredura de dependências/imagens e patching são requisitos de produção, não evidência executada pelo Compose.
 
 ## Resiliência
 
 | Falha | Resposta |
 |---|---|
 | Consolidação API/Worker/banco | Lançamentos continua; transporte acumula; recuperação por backlog ou rebuild |
-| Broker | Outbox preserva trabalho; circuit breaker pausa falha sistêmica sem suspender itens válidos; API não depende do envio |
-| Publicador cai após envio | Republicação com identidade estável |
-| Consumidor cai após commit | Reentrega sem efeito adicional |
-| Banco de Lançamentos | Sem confirmação; erro retentável com chave original |
-| Mensagem inválida | Isolamento em DLQ, investigação; sem descarte silencioso |
-| Perda/expiração do transporte | Reconciliação e reconstrução da fonte |
-| Falha de zona AWS | Réplicas ECS e RDS Multi-AZ; medir failover |
-| Corrupção/restore | Bloqueio de escrita da fonte, fila antiga isolada, PITR e reconstrução coordenada; RPO/RTO medidos |
+| Broker RabbitMQ local | Outbox preserva trabalho; circuit breaker do publisher pausa falha sistêmica; API não depende do envio |
+| Publicador cai após envio | Republicação possível com identidade estável; consumidor idempotente |
+| Consumidor cai após commit | Reentrega possível sem efeito financeiro adicional |
+| Banco de Lançamentos | Sem confirmação da escrita; retry deve reutilizar a chave de idempotência |
+| Mensagem inválida | Isolamento em DLQ, sem descarte silencioso |
+| Banco de Consolidação/manutenção | Consumer perde readiness e mantém entrega sem ACK até recuperação/reconexão |
+| Perda/expiração do transporte | Rebuild a partir da fonte financeira é a estratégia de recuperação |
+| Falha de zona AWS | ECS/RDS Multi-AZ são arquitetura-alvo; failover deve ser medido antes de produção |
+| Corrupção/restore AWS | PITR e reconstrução coordenada são procedimentos-alvo ainda não ensaiados |
 
-Backlog não é ilimitado. Alarmes de armazenamento, reservas e conexões previnem falhas indiretas. Credenciais, ALB, região e infraestrutura compartilhada continuam domínios de falha comuns; a independência exigida não equivale a imunidade a toda falha da AWS.
+Backlog não é ilimitado. Alarmes de armazenamento, reservas e conexões são controles operacionais necessários em produção. Credenciais, região e infraestrutura compartilhada continuam domínios de falha comuns; independência entre Lançamentos e Consolidação não significa imunidade a toda falha de infraestrutura.
 
 ## Observabilidade
 
-Localmente há OpenTelemetry nos quatro processos, correlação HTTP→Outbox→broker→consumidor, logs estruturados, métricas em `/metrics` e exportação OTLP para Jaeger. O trace da consulta posterior à Consolidation API é independente do trace assíncrono do lançamento. Não registrar tokens, secrets, descrição ou corpo financeiro em logs nem usar transactionId/eventId como labels de alta cardinalidade. Persistência de issuer/clientId no fato, trilha `recovery_runs` e CloudTrail na AWS pertencem ao desenho de auditoria alvo; `recovery_runs` e CloudTrail não integram a execução local.
+Localmente há OpenTelemetry nos quatro processos, correlação HTTP→Outbox→RabbitMQ→consumidor, métricas em `/metrics` e exportação OTLP para Jaeger. O ensaio T14 demonstrou a propagação distribuída pelo caminho assíncrono. O trace de uma consulta posterior à Consolidation API é independente do trace assíncrono do lançamento. Tokens e secrets não devem ser registrados; identificadores financeiros não devem virar labels de alta cardinalidade.
 
-Métricas HTTP: volume, erros por classe, duração e readiness. Outbox: pendentes, idade, suspensos, taxa de publicação, leases vencidas. RabbitMQ: ready, unacked, redeliveries, confirmações e DLQ; idade complementar medida pelo timestamp do evento. SQS: visible/in-flight, idade aproximada e DLQ. Consumidor: duração, falhas, duplicatas e idade do evento. Processamento mede atraso desde createdAt/eventOccurredAt, não desde data retroativa do negócio.
+A aplicação expõe métricas próprias de HTTP/processamento, Outbox e consumer, enquanto RabbitMQ/infraestrutura possuem sinais operacionais próprios. `lastUpdatedAt` não mede completude. Thresholds, retenções e metas estão nos [parâmetros](../07-infraestrutura/parametros-operacionais.md). Nesta entrega não há envio configurado de alertas/notificações nem CloudWatch/CloudTrail AWS demonstrados.
 
-`lastUpdatedAt` não mede completude. Relatórios de reconciliação e métricas de integração complementam o diagnóstico. Thresholds, retenções e metas estão nos [parâmetros](../07-infraestrutura/parametros-operacionais.md). Alertas são encaminhados ao canal operacional configurado na implantação; nesta etapa não há envio de notificações.
+Na arquitetura-alvo, métricas de fila/SQS, DLQ, idade, disponibilidade, banco, ALB e tarefas ECS devem compor dashboards e alarmes. CloudTrail e controles de auditoria AWS pertencem ao desenho de produção, não à execução local.
 
-Referências: [validação de tokens Cognito](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html), [HTTPS em target groups ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html).
+Referências de arquitetura-alvo: [validação de tokens Cognito](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html), [HTTPS em target groups ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html).

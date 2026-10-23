@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 COPY Directory.Build.props ./
+COPY src/BuildingBlocks/ ./src/BuildingBlocks/
 COPY src/Consolidation/ ./src/Consolidation/
 RUN dotnet restore src/Consolidation/CashFlow.Consolidation.Worker/CashFlow.Consolidation.Worker.csproj --locked-mode
 RUN dotnet publish src/Consolidation/CashFlow.Consolidation.Worker/CashFlow.Consolidation.Worker.csproj \

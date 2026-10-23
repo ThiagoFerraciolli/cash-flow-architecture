@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <ProjectReference Include="../../BuildingBlocks/CashFlow.Observability/CashFlow.Observability.csproj" />
     <PackageReference Include="Npgsql" Version="10.0.0" />
     <PackageReference Include="RabbitMQ.Client" Version="7.2.2" />
     <ProjectReference Include="../CashFlow.Consolidation.Application/CashFlow.Consolidation.Application.csproj" />

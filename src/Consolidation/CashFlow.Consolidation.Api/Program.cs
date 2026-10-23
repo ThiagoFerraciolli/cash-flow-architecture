@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using CashFlow.Consolidation.Application;
 using CashFlow.Consolidation.Infrastructure;
+using CashFlow.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -11,6 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddCashFlowObservability("cashflow-consolidation-api");
 var authority = builder.Configuration["Authentication:Authority"] ?? throw new InvalidOperationException("Authentication:Authority is required.");
 var issuer = builder.Configuration["Authentication:Issuer"] ?? throw new InvalidOperationException("Authentication:Issuer is required.");
 var audience = builder.Configuration["Authentication:Audience"] ?? throw new InvalidOperationException("Authentication:Audience is required.");
@@ -92,6 +94,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = x => x.Tags.Contains("live") });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = x => x.Tags.Contains("ready") });
+app.MapCashFlowMetrics();
 app.MapGet("/consolidations/{date}", async (string date, IConsolidationQuery query, CancellationToken token) =>
 {
     if (!TryDate(date, out var day)) return Problem(400, "Invalid date.");

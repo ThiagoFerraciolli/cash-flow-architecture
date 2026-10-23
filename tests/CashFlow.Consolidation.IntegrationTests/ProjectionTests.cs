@@ -164,11 +164,29 @@ public sealed class ProjectionTests
     {
         await WithDatabase(async source =>
         {
-            await using var command = source.CreateCommand("UPDATE projection_control SET maintenance = true");
+            await using var command = source.CreateCommand("UPDATE projection_control SET maintenance = true, maintenance_run_id = gen_random_uuid(), maintenance_started_at = clock_timestamp(), maintenance_expires_at = clock_timestamp() + interval '60 seconds'");
             await command.ExecuteNonQueryAsync(Token);
             await Assert.ThrowsAsync<ProjectionInMaintenanceException>(() =>
                 new PostgresTransactionProjection(source).ApplyAsync(Fact(), Token));
             Assert.Equal(0L, await Count(source, "processed_transactions"));
+        });
+    }
+
+    [Fact]
+    public async Task Expired_maintenance_allows_worker_to_resume_without_manual_cleanup()
+    {
+        await WithDatabase(async source =>
+        {
+            await using var command = source.CreateCommand("""
+                UPDATE projection_control SET maintenance = true, maintenance_run_id = gen_random_uuid(),
+                    maintenance_started_at = clock_timestamp() - interval '2 minutes',
+                    maintenance_expires_at = clock_timestamp() - interval '1 minute'
+                """);
+            await command.ExecuteNonQueryAsync(Token);
+            var projection = new PostgresTransactionProjection(source);
+            await projection.ProbeAsync(Token);
+            Assert.Equal(ApplyTransactionResult.Applied, await projection.ApplyAsync(Fact(), Token));
+            Assert.Equal(1L, await Count(source, "processed_transactions"));
         });
     }
 
@@ -325,6 +343,9 @@ public sealed class ProjectionTests
             await using var migration = source.CreateCommand(await File.ReadAllTextAsync(
                 Path.Combine(AppContext.BaseDirectory, "001_consolidation.sql"), Token));
             await migration.ExecuteNonQueryAsync(Token);
+            await using var leaseMigration = source.CreateCommand(await File.ReadAllTextAsync(
+                Path.Combine(AppContext.BaseDirectory, "002_recovery_lease.sql"), Token));
+            await leaseMigration.ExecuteNonQueryAsync(Token);
             await test(source);
         }
         finally

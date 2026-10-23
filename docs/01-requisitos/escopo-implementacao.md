@@ -24,20 +24,21 @@ Este documento separa a arquitetura-alvo do corte final demonstrado localmente. 
 | Health/readiness | Implementar | endpoints e dependências próprias |
 | Testes funcionais, concorrência e indisponibilidade essenciais | Implementar | suíte automatizada local |
 | Meta de 50 req/s e perda máxima de 5% | Implementado e demonstrado localmente | T15: 6.000/6.000 requisições, 50 req/s, failure rate 0%, dropped iterations 0; [evidência local](../08-testes/validacao-local-final.md) |
-| Retry, DLQ/redrive e circuit breaker necessários ao cenário local | Implementar incrementalmente | testes de falha e recuperação |
-| Reconciliação básica | Evolução | Reconciliação e rebuild avançados permanecem documentados como evolução arquitetural; não foram implementados e não são necessários para demonstrar o núcleo do case |
+| Retry, DLQ e circuit breaker locais | Implementado e demonstrado localmente | testes automatizados e T09 limitado; redrive operacional completo permanece pendente |
+| Reconciliação contínua/avançada | Evolução | procedimento arquitetural documentado; não implementada localmente |
 | Autenticação/autorização | Implementado e demonstrado localmente | Keycloak/JWT, permissões lógicas e E2E autenticado; [evidência local](../08-testes/validacao-local-final.md) |
-| Diagnóstico local | Implementado e demonstrado localmente | logs dos processos e endpoints health/readiness; não equivale à stack completa de observabilidade |
-| Stack completa de observabilidade | Projetado / homologação | métricas, traces e ferramentas de produção permanecem projetados; sem implementação local completa |
+| Observabilidade local | Implementado e demonstrado localmente | logs estruturados, OpenTelemetry nos quatro processos, `/metrics`, OTLP/Jaeger e T14 local |
+| Stack completa de observabilidade de produção | Projetado / homologação | servidores de métricas, dashboards, retenção/alertas e cloud permanecem fora do Compose |
 | Adaptador SQS | Projetado / homologação | contrato e design; smoke/suíte real somente quando houver ambiente AWS |
 | Cognito, IAM e KMS | Projetado / homologação | arquitetura AWS; validação em homologação futura |
 | Terraform completo e pipeline de deployment AWS | Evolução | documentação e desenho suficientes para o MVP |
-| Recovery/rebuild completo por gerações | Evolução | procedimento documentado; implementação posterior |
+| Recovery administrativo por gerações | Implementado e demonstrado localmente | T10 local; snapshot read-only, geração nova, verificação, ativação atômica e lease com fencing; [rastreabilidade](../08-testes/production-grade-local-traceability.md) |
+| Rebuild/reconciliação operacional avançados | Evolução | restart automático, reconciliação contínua, redrive e todos os cenários normativos T10–T12 não demonstrados |
 | Restore/failover AWS e ensaios de infraestrutura | Evolução | homologação operacional futura |
 
 ## Testes
 
-A estratégia T01–T20 continua sendo a referência de cobertura arquitetural, mas a disponibilidade de cada evidência acompanha a classificação da capacidade correspondente. Os resultados executados de E2E, T06, T15 e da suíte local final estão em [validação local final](../08-testes/validacao-local-final.md). Testes que exigem AWS real, IAM, KMS ou SQS real são evidências de homologação futura e não bloqueiam a entrega executável local. Testes locais não devem ser apresentados como certificação de comportamento específico da AWS.
+A estratégia T01–T20 continua sendo a referência normativa de cobertura arquitetural, distinta dos ensaios limitados executados. E2E e T06/T09/T10/T13/T14/T15/T18 locais estão em [validação local final](../08-testes/validacao-local-final.md) e [rastreabilidade](../08-testes/production-grade-local-traceability.md). Testes que exigem AWS real, IAM, KMS ou SQS real são evidências de homologação futura e não bloqueiam a entrega executável local. Testes locais não certificam comportamento específico da AWS.
 
 ## Regra de conclusão
 

@@ -45,7 +45,7 @@ Backlog não é ilimitado. Alarmes de armazenamento, reservas e conexões previn
 
 ## Observabilidade
 
-OpenTelemetry nos quatro processos, correlação HTTP→Outbox→broker→consumidor. Logs estruturados com ids técnicos, sem tokens, secrets, descrição ou corpo financeiro. Persistir issuer/clientId e instante no fato para auditoria; trilha de operação em recovery_runs e CloudTrail na AWS. Não colocar transactionId/eventId como labels de métricas de alta cardinalidade.
+Localmente há OpenTelemetry nos quatro processos, correlação HTTP→Outbox→broker→consumidor, logs estruturados, métricas em `/metrics` e exportação OTLP para Jaeger. O trace da consulta posterior à Consolidation API é independente do trace assíncrono do lançamento. Não registrar tokens, secrets, descrição ou corpo financeiro em logs nem usar transactionId/eventId como labels de alta cardinalidade. Persistência de issuer/clientId no fato, trilha `recovery_runs` e CloudTrail na AWS pertencem ao desenho de auditoria alvo; `recovery_runs` e CloudTrail não integram a execução local.
 
 Métricas HTTP: volume, erros por classe, duração e readiness. Outbox: pendentes, idade, suspensos, taxa de publicação, leases vencidas. RabbitMQ: ready, unacked, redeliveries, confirmações e DLQ; idade complementar medida pelo timestamp do evento. SQS: visible/in-flight, idade aproximada e DLQ. Consumidor: duração, falhas, duplicatas e idade do evento. Processamento mede atraso desde createdAt/eventOccurredAt, não desde data retroativa do negócio.
 

@@ -1,7 +1,9 @@
 using System.Text;
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using CashFlow.Consolidation.Application;
+using CashFlow.Observability;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using RabbitMQ.Client;
@@ -93,16 +95,23 @@ public sealed class RabbitMqTransactionConsumer(string uri, ITransactionProjecti
     private async Task ProcessAsync(IConnection connection, IChannel channel, SemaphoreSlim acknowledgements,
         BasicDeliverEventArgs delivery, TaskCompletionSource paused, CancellationToken token)
     {
+        using var activity = CashFlowTelemetry.StartFromHeaders("transaction consume", ActivityKind.Consumer,
+            TraceHeaders(delivery.BasicProperties.Headers));
+        activity?.SetTag("messaging.system", "rabbitmq");
+        activity?.SetTag("messaging.message.id", delivery.BasicProperties.MessageId);
         try
         {
             var fact = TransactionCreatedFact.Parse(delivery.Body);
-            await projection.ApplyAsync(fact, token);
+            var result = await projection.ApplyAsync(fact, token);
             await AcknowledgeAsync(channel, acknowledgements, delivery.DeliveryTag, token);
+            if (result == ApplyTransactionResult.Applied) CashFlowTelemetry.ConsumerApplied.Add(1);
+            else CashFlowTelemetry.ConsumerDuplicate.Add(1);
         }
         catch (Exception error) when (error is InvalidTransactionEventException or FinancialIdentityConflictException)
         {
             await ForwardAndAcknowledgeAsync(connection, channel, acknowledgements, delivery,
                 ErrorExchange, ErrorRoute, null, token);
+            CashFlowTelemetry.ConsumerDeadLettered.Add(1);
             logger.LogError(error, "Event {MessageId} sent to DLQ.", delivery.BasicProperties.MessageId);
         }
         catch (Exception error) when (error is ProjectionInMaintenanceException or NpgsqlException or TimeoutException or OperationCanceledException)
@@ -122,6 +131,24 @@ public sealed class RabbitMqTransactionConsumer(string uri, ITransactionProjecti
                 delivery.BasicProperties.MessageId);
             await RetryOrDeadLetterAsync(connection, channel, acknowledgements, delivery, token);
         }
+    }
+
+    private static IReadOnlyDictionary<string, string> TraceHeaders(IDictionary<string, object?>? headers)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (headers is null) return result;
+        foreach (var name in new[] { "traceparent", "tracestate" })
+        {
+            if (!headers.TryGetValue(name, out var value)) continue;
+            var text = value switch
+            {
+                byte[] bytes when bytes.Length <= 512 => Encoding.UTF8.GetString(bytes),
+                string header when header.Length <= 512 => header,
+                _ => null
+            };
+            if (text is not null) result[name] = text;
+        }
+        return result;
     }
 
     private async Task RetryOrDeadLetterAsync(IConnection connection, IChannel channel,

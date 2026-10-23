@@ -1,12 +1,14 @@
 using CashFlow.Transactions.Application;
 using CashFlow.Transactions.Infrastructure;
 using CashFlow.Transactions.Worker;
+using CashFlow.Observability;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddCashFlowObservability("cashflow-transactions-worker");
 builder.Host.ConfigureHostOptions(options => options.ShutdownTimeout = TimeSpan.FromSeconds(30));
 builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Transactions") ??
     throw new InvalidOperationException("ConnectionStrings:Transactions is required.")));
@@ -24,6 +26,7 @@ var app = builder.Build();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = registration => registration.Tags.Contains("live") });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = registration => registration.Tags.Contains("ready") });
+app.MapCashFlowMetrics();
 app.Run();
 
 internal sealed class WorkerReadinessCheck(OutboxWorker worker, NpgsqlDataSource source) : IHealthCheck

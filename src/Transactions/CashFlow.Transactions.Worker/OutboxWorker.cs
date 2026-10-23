@@ -1,4 +1,6 @@
 using CashFlow.Transactions.Application;
+using CashFlow.Observability;
+using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -77,7 +79,14 @@ public sealed class OutboxWorker(IOutboxLeaseStore store, IOutboxEventPublisher 
         var renewal = RenewUntilDoneAsync(lease, renewCancellation.Token);
         try
         {
-            await publisher.PublishAsync(lease, publishTimeout.Token);
+            using (var activity = CashFlowTelemetry.StartFromHeaders(
+                "outbox publish", ActivityKind.Producer, lease.Headers))
+            {
+                activity?.SetTag("messaging.system", "rabbitmq");
+                activity?.SetTag("messaging.message.id", lease.EventId.ToString());
+                await publisher.PublishAsync(lease, publishTimeout.Token);
+                CashFlowTelemetry.OutboxPublished.Add(1);
+            }
             if (!await store.MarkPublishedAsync(lease, cancellationToken))
                 logger.LogWarning("Confirmed event {EventId} lost its lease before marking published; replay remains possible.", lease.EventId);
             else CloseCircuit();

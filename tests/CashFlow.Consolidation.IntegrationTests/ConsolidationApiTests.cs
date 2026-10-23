@@ -54,7 +54,7 @@ public sealed class ConsolidationApiTests
             using (var response = await Get(client, "/consolidations/2026-10-23"))
             using (var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Token)))
                 Assert.Equal(3_000_000_000L, json.RootElement.GetProperty("transactionCount").GetInt64());
-            await Execute(source, "UPDATE projection_control SET maintenance = true");
+            await Execute(source, "UPDATE projection_control SET maintenance = true, maintenance_run_id = gen_random_uuid(), maintenance_started_at = clock_timestamp(), maintenance_expires_at = clock_timestamp() + interval '60 seconds'");
             using (var response = await Get(client, "/consolidations/2026-10-22"))
             {
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);

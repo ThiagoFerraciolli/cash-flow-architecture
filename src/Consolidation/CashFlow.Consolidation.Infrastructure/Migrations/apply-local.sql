@@ -7,4 +7,13 @@ SELECT (to_regclass('public.projection_control') IS NULL)::text AS apply_001 \gs
 \i /migrations/001_consolidation.sql
 \endif
 INSERT INTO local_schema_migrations (version) VALUES (1) ON CONFLICT DO NOTHING;
+SELECT (NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'projection_control'
+      AND column_name = 'maintenance_expires_at'
+))::text AS apply_002 \gset
+\if :apply_002
+\i /migrations/002_recovery_lease.sql
+\endif
+INSERT INTO local_schema_migrations (version) VALUES (2) ON CONFLICT DO NOTHING;
 COMMIT;

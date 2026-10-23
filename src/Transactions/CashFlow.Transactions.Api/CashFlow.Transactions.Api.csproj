@@ -3,6 +3,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../BuildingBlocks/CashFlow.Observability/CashFlow.Observability.csproj" />
     <ProjectReference Include="../CashFlow.Transactions.Application/CashFlow.Transactions.Application.csproj" />
     <ProjectReference Include="../CashFlow.Transactions.Infrastructure/CashFlow.Transactions.Infrastructure.csproj" />
   </ItemGroup>

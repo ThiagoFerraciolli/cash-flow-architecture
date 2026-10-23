@@ -15,8 +15,11 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Consolidation/CashFlow.Consolidation.Api/CashFlow.Consolidation.Api.csproj" />
     <ProjectReference Include="../../src/Consolidation/CashFlow.Consolidation.Infrastructure/CashFlow.Consolidation.Infrastructure.csproj" />
+    <ProjectReference Include="../../tools/CashFlow.Recovery/CashFlow.Recovery.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="../../src/Consolidation/CashFlow.Consolidation.Infrastructure/Migrations/001_consolidation.sql" Link="001_consolidation.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../src/Consolidation/CashFlow.Consolidation.Infrastructure/Migrations/002_recovery_lease.sql" Link="002_recovery_lease.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../src/Transactions/CashFlow.Transactions.Infrastructure/Migrations/001_financial_transactions.sql" Link="001_financial_transactions.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

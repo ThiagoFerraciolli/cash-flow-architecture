@@ -58,40 +58,68 @@ public sealed class RabbitConsumerTests
         });
     }
 
-    [Theory]
-    [InlineData(1, 5)]
-    [InlineData(2, 15)]
-    [InlineData(3, 30)]
-    [InlineData(4, 60)]
-    public async Task Isolated_failure_is_confirmed_into_retry_with_incremented_attempt(
-        int attempt, int delaySeconds)
+    [Fact]
+    public async Task Headerless_original_first_retry_has_retry_attempt_one()
     {
         await WithRabbit(async (uri, channel, _) =>
         {
             var fake = new FakeProjection { Failure = new IOException("isolated") };
             await using var running = await StartConsumer(uri, fake);
             var payload = Payload();
-            await Publish(channel, payload, attempt);
-            var retry = await WaitForMessage(channel, $"consolidation.retry.{delaySeconds}s");
+            await Publish(channel, payload);
+            var retry = await WaitForMessage(channel, "consolidation.retry.5s");
             Assert.Equal(payload, Encoding.UTF8.GetString(retry.Body.ToArray()));
-            Assert.Equal(attempt + 1, retry.BasicProperties.Headers!["retryAttempt"]);
+            Assert.Equal(1, retry.BasicProperties.Headers!["retryAttempt"]);
             Assert.Equal("event-test", retry.BasicProperties.MessageId);
             Assert.Equal("correlation-test", retry.BasicProperties.CorrelationId);
             Assert.True(retry.BasicProperties.Headers.ContainsKey("traceparent"));
+            Assert.True(retry.BasicProperties.Headers.ContainsKey("tracestate"));
             Assert.Null(await channel.BasicGetAsync(RabbitMqTransactionConsumer.MainQueue, true, Token));
         });
     }
 
     [Fact]
-    public async Task Fifth_failed_attempt_is_confirmed_into_dlq()
+    public async Task Headerless_original_progresses_through_four_retry_queues_then_dlq()
     {
         await WithRabbit(async (uri, channel, _) =>
         {
             var fake = new FakeProjection { Failure = new IOException("isolated") };
             await using var running = await StartConsumer(uri, fake);
-            await Publish(channel, Payload(), attempt: 5);
+            var payload = Payload();
+            await Publish(channel, payload);
+            var attempt = 0;
+            foreach (var delay in new[] { 5, 15, 30, 60 })
+            {
+                var retry = await WaitForMessage(channel, $"consolidation.retry.{delay}s");
+                AssertForwarded(retry, payload, ++attempt);
+                await RepublishToMain(channel, retry);
+            }
             var dead = await WaitForMessage(channel, RabbitMqTransactionConsumer.ErrorQueue);
-            Assert.Equal(5, dead.BasicProperties.Headers!["retryAttempt"]);
+            AssertForwarded(dead, payload, 5);
+            Assert.Equal(5, fake.Attempts);
+            Assert.Null(await channel.BasicGetAsync(RabbitMqTransactionConsumer.MainQueue, true, Token));
+        });
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(999)]
+    [InlineData("malformed")]
+    public async Task Invalid_retry_attempt_is_confirmed_into_dlq_without_loop(object invalidAttempt)
+    {
+        await WithRabbit(async (uri, channel, _) =>
+        {
+            var fake = new FakeProjection { Failure = new IOException("isolated") };
+            await using var running = await StartConsumer(uri, fake);
+            var payload = Payload();
+            await Publish(channel, payload, invalidAttempt is string text
+                ? Encoding.UTF8.GetBytes(text) : invalidAttempt);
+            var dead = await WaitForMessage(channel, RabbitMqTransactionConsumer.ErrorQueue);
+            AssertForwarded(dead, payload, 5);
+            Assert.Equal(1, fake.Attempts);
+            foreach (var delay in new[] { 5, 15, 30, 60 })
+                Assert.Null(await channel.BasicGetAsync($"consolidation.retry.{delay}s", true, Token));
             Assert.Null(await channel.BasicGetAsync(RabbitMqTransactionConsumer.MainQueue, true, Token));
         });
     }
@@ -228,13 +256,14 @@ public sealed class RabbitConsumerTests
         businessDate = "2026-10-21"
     });
 
-    private static async Task Publish(IChannel channel, string payload, int? attempt = null)
+    private static async Task Publish(IChannel channel, string payload, object? attempt = null)
     {
         var headers = new Dictionary<string, object?>
         {
-            ["traceparent"] = Encoding.UTF8.GetBytes("00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
+            ["traceparent"] = Encoding.UTF8.GetBytes("00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"),
+            ["tracestate"] = Encoding.UTF8.GetBytes("vendor=value")
         };
-        if (attempt.HasValue) headers["retryAttempt"] = attempt.Value;
+        if (attempt is not null) headers["retryAttempt"] = attempt;
         await channel.BasicPublishAsync("cashflow.events", "transaction.created.v1", mandatory: true,
             basicProperties: new BasicProperties
             {
@@ -244,6 +273,31 @@ public sealed class RabbitConsumerTests
                 ContentType = "application/json",
                 Headers = headers
             }, body: Encoding.UTF8.GetBytes(payload), cancellationToken: Token);
+    }
+
+    private static async Task RepublishToMain(IChannel channel, BasicGetResult delivery)
+    {
+        await channel.BasicPublishAsync("cashflow.events", "transaction.created.v1", mandatory: true,
+            basicProperties: new BasicProperties
+            {
+                DeliveryMode = DeliveryModes.Persistent,
+                MessageId = delivery.BasicProperties.MessageId,
+                CorrelationId = delivery.BasicProperties.CorrelationId,
+                ContentType = delivery.BasicProperties.ContentType,
+                Headers = new Dictionary<string, object?>(delivery.BasicProperties.Headers!)
+            }, body: delivery.Body, cancellationToken: Token);
+    }
+
+    private static void AssertForwarded(BasicGetResult delivery, string payload, int attempt)
+    {
+        Assert.Equal(payload, Encoding.UTF8.GetString(delivery.Body.ToArray()));
+        Assert.Equal(attempt, delivery.BasicProperties.Headers!["retryAttempt"]);
+        Assert.Equal("event-test", delivery.BasicProperties.MessageId);
+        Assert.Equal("correlation-test", delivery.BasicProperties.CorrelationId);
+        Assert.Equal("00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+            Encoding.UTF8.GetString((byte[])delivery.BasicProperties.Headers["traceparent"]!));
+        Assert.Equal("vendor=value",
+            Encoding.UTF8.GetString((byte[])delivery.BasicProperties.Headers["tracestate"]!));
     }
 
     private static async Task<BasicGetResult> WaitForMessage(IChannel channel, string queue)
@@ -298,9 +352,12 @@ public sealed class RabbitConsumerTests
         public bool IgnoreProbe { get; set; }
         public Exception? Failure { get; set; }
         private int _applied;
+        private int _attempts;
         public int Applied => Volatile.Read(ref _applied);
+        public int Attempts => Volatile.Read(ref _attempts);
         public Task<ApplyTransactionResult> ApplyAsync(TransactionCreatedFact fact, CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref _attempts);
             if (!Available) throw new NpgsqlException("simulated database outage");
             if (Failure is not null) throw Failure;
             Interlocked.Increment(ref _applied);

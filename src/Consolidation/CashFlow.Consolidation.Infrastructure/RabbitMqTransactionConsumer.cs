@@ -128,17 +128,17 @@ public sealed class RabbitMqTransactionConsumer(string uri, ITransactionProjecti
         SemaphoreSlim acknowledgements, BasicDeliverEventArgs delivery, CancellationToken token)
     {
         var attempt = ReadAttempt(delivery.BasicProperties.Headers);
-        if (attempt >= 5)
+        if (attempt >= Delays.Length)
             await ForwardAndAcknowledgeAsync(connection, channel, acknowledgements, delivery,
-                ErrorExchange, ErrorRoute, attempt, token);
+                ErrorExchange, ErrorRoute, 5, token);
         else
             await ForwardAndAcknowledgeAsync(connection, channel, acknowledgements, delivery,
-                RetryExchange, $"retry.{Delays[attempt - 1]}s", attempt + 1, token);
+                RetryExchange, $"retry.{Delays[attempt]}s", attempt + 1, token);
     }
 
     private static int ReadAttempt(IDictionary<string, object?>? headers)
     {
-        if (headers is null || !headers.TryGetValue("retryAttempt", out var value)) return 1;
+        if (headers is null || !headers.TryGetValue("retryAttempt", out var value)) return 0;
         return value switch
         {
             int number when number is >= 1 and <= 5 => number,

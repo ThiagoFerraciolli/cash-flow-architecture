@@ -70,6 +70,8 @@ CQRS framework, Event Sourcing, Kafka e Mediator não são introduzidos sem requ
 
 ## Estado e validação
 
-O corte local descrito neste SDD está implementado com migrations versionadas, Docker Compose, RabbitMQ, Keycloak, observabilidade e Recovery administrativo. A última regressão registrada antes da correção de autorização dos GETs teve **89 passed, 0 failed, 0 skipped** em execução local. Como houve alteração posterior de código/testes, esse número é histórico e **não deve ser tratado como gate da revisão atual até nova regressão ser executada**.
+O corte local descrito neste SDD está implementado com migrations versionadas, Docker Compose, RabbitMQ, Keycloak, observabilidade e Recovery administrativo. Em **23/10/2026**, o golden path `sh tools/validate-local.sh` executou a topologia completa, restore em locked mode, build e regressão automatizada com **90 passed, 0 failed, 0 skipped**, além de **0 warnings e 0 errors** no build. Esse é o gate automatizado local corrente; execuções anteriores com 80/84/89 testes permanecem apenas como histórico de evolução.
+
+A regressão automatizada não deve ser confundida com todos os ensaios operacionais normativos: evidências como T06, T09, T10, T13, T14, T15 e T18 possuem escopos próprios documentados em `docs/08-testes`.
 
 Não fazem parte da implementação atual: adaptador SQS, infraestrutura AWS, Cognito real, OpenAPI/Swagger e homologação cloud. Esses itens só podem ser tratados como arquitetura-alvo ou evolução até existirem código e evidência correspondentes.

@@ -1,65 +1,74 @@
 # Parâmetros operacionais e metas de referência
 
-## Negócio e contratos
+Este documento reúne três categorias diferentes. Elas não devem ser confundidas:
+
+1. **REQUISITO DO DESAFIO:** fornecido nos PDFs.
+2. **IMPLEMENTAÇÃO LOCAL:** parâmetro existente no código/Compose entregue.
+3. **META / ARQUITETURA-ALVO:** escolha para orientar produção/homologação; não é requisito do cliente nem evidência executada.
+
+## Negócio e contratos — decisões adotadas
 
 | Parâmetro | Decisão |
 |---|---|
 | Escopo | Um comerciante, um caixa lógico, moeda BRL; sem multi-tenant |
-| Dia financeiro | `America/Sao_Paulo`, derivado de `occurredAt` obrigatório com offset; sem fechamento |
-| Datas aceitas | Retroativas aceitas; instante futuro além de 5 minutos do relógio UTC do servidor rejeitado |
-| Valor | Decimal textual, duas casas, de 0,01 a 999.999.999,99; sem arredondamento implícito |
-| Agregação | Créditos menos débitos do próprio dia; não inclui saldo transportado de dias anteriores |
+| Dia financeiro | `America/Sao_Paulo`, derivado de `occurredAt` obrigatório com offset |
+| Datas aceitas | Retroativas aceitas; instante futuro além de 5 minutos do relógio UTC rejeitado |
+| Valor | Decimal textual, duas casas, de 0,01 a 999.999.999,99 |
+| Agregação | Créditos menos débitos do próprio dia; sem saldo transportado |
 | Imutabilidade | Sem alteração, exclusão ou estorno no escopo |
-| Descrição | Opcional, até 500 caracteres; não publicar no evento nem nos logs |
-| HTTP | Corpo máximo 16 KiB; página padrão 50 e máxima 200; intervalo máximo 366 dias |
-| Identidade | Cliente técnico autenticado; chave de idempotência no escopo de `issuer + client_id` |
-| Idempotência | Sem expiração no escopo; registro mínimo retido junto ao fato financeiro |
-| Dados financeiros e deduplicação ativa | Sem exclusão automática; futura política legal deve preservar capacidade de recuperação |
+| Descrição | Opcional, até 500 caracteres; não publicada no evento |
+| HTTP | Corpo máximo 16 KiB; página padrão 50/máxima 200; intervalo máximo 366 dias |
+| Idempotência | Escopo `issuer + client_id + key`; sem expiração no estudo de caso |
 
-## Processamento
+Esses valores refinam ambiguidades do desafio; não devem ser atribuídos aos PDFs como requisitos explícitos.
 
-| Parâmetro | Valor inicial |
+## Processamento local implementado
+
+| Parâmetro | Valor |
 |---|---|
 | Consulta de Outbox | A cada 1 s; lote máximo 20 |
-| Reserva de publicação | 60 s por lote; renovação a cada 20 s; envio concorrente máximo 4 |
+| Reserva de publicação | 60 s; renovação a cada 20 s; envio concorrente máximo 4 |
 | Timeout de publicação | 10 s por tentativa |
-| Retentativa Outbox | Sistêmica: circuit breaker, base 1 s e teto 60 s, sem suspender item; payload inválido: suspensão imediata; falha isolada indeterminada: suspensão após 20 tentativas |
-| Limpeza Outbox publicada | Após 30 dias; nunca remover pendente ou suspensa |
-| Consumidor | Até 8 operações concorrentes por processo; transação de banco limitada a 10 s |
-| SQS | Long polling 20 s; lote até 10; visibilidade 60 s; extensão a cada 20 s se necessária |
-| SQS redrive | `maxReceiveCount = 8`; retenção principal 7 dias e DLQ 14 dias; indisponibilidade compartilhada pausa polling e estende mensagens em curso |
-| RabbitMQ | Mensagens persistentes, filas quorum duráveis, prefetch 16; confirmação manual |
-| RabbitMQ retry | Até 5 tentativas de processamento; espera de 5 s, 15 s, 30 s e 60 s entre tentativas |
-| RabbitMQ limite nativo | delivery-limit 100 na principal, DLX seguro para DLQ; distinto das 5 tentativas da aplicação |
-| RabbitMQ capacidade local | 1 GiB por fila; overflow rejeita publicação, nunca remove mensagem antiga |
-| RabbitMQ retenção | Sem TTL de negócio na fila principal/DLQ; monitorar disco e profundidade; retry com TTL técnico |
-| Reprocessamento operacional | Iniciar a 10 mensagens/s; pausar se falha > 1% em 1 min ou idade da fila crescer por 5 min |
-| Reconciliação | Diária às 03:00 no fuso de negócio e após incidente, restore ou reconstrução |
-| Reconstrução de Consolidação | Toda a projeção; consumo pausado por controle persistente; escrita de Lançamentos continua |
-| Restore de Lançamentos | Escrita e publicação pausadas; fila antiga isolada; destino físico novo; Consolidação reconstruída antes da reabertura |
+| Outbox | Falha sistêmica abre circuit breaker; payload inválido suspende; falha isolada possui limite de tentativas |
+| Consumidor | Até 8 operações concorrentes por processo; prefetch RabbitMQ 16 |
+| RabbitMQ | Mensagens persistentes, filas quorum duráveis e ACK manual após commit |
+| RabbitMQ retry | Filas técnicas com 5 s, 15 s, 30 s e 60 s; limite da aplicação separado do delivery-limit nativo |
+| Recovery | Lease 60 s; renovação 15 s; owner token/fencing; nova geração |
 
-Timeout de visibilidade e backoff RabbitMQ são mecanismos diferentes. O domínio não depende de igualdade de tempos ou de contadores entre brokers. Tamanho de mensagem da aplicação limitado a 16 KiB em ambos.
+Esses parâmetros descrevem a implementação local. A existência da configuração não significa que cada limite tenha sido submetido a teste operacional específico.
 
-## Metas e alarmes
+## Requisito explícito e evidência local
 
-| Sinal | Meta ou ação inicial |
+| Item | Origem | Evidência |
+|---|---|---|
+| Consolidado recebe 50 req/s | DESAFIO | T15 local: 6.000/6.000 GETs em 120 s a 50 req/s |
+| Perda/falha máxima 5% | DESAFIO | T15 local: 0 falhas e 0 dropped iterations na janela executada |
+| Transactions permanece disponível se Consolidação cair | DESAFIO | T06 local: API/Worker/banco da Consolidação parados; Transactions live/ready 200 e dois POSTs 201 |
+
+O T15 comprova o comportamento **somente na janela e ambiente executados**. Não constitui SLA, benchmark AWS nem demonstração de 10 minutos/30.000 requisições.
+
+## Metas internas de engenharia — não exigidas pelo desafio
+
+| Sinal | Meta de referência |
 |---|---|
-| Requisito explícito | 50 requisições/s no consolidado e falha/perda ≤ 5% |
-| Ensaio principal | GET por data; aquecimento 2 min + medição 10 min; timeout HTTP 5 s |
-| Latência técnica adotada | P95 ≤ 500 ms e P99 ≤ 1 s no ensaio de referência |
-| Convergência normal | 99% dos lançamentos refletidos em até 60 s no ensaio de referência |
-| Recuperação de backlog | 10.000 lançamentos acumulados em até 10 min após retomada, com escrita concorrente de 10/s |
-| Disponibilidade AWS | Objetivo interno de 99,9% mensal por API; não é SLA contratual nem evidência obtida |
-| Recuperação de falha de zona/processo | RTO alvo ≤ 15 min, a demonstrar em homologação |
-| Restore de Lançamentos | RTO alvo ≤ 4 h e RPO alvo ≤ 5 min; medir ponto restaurável real; não afirmar perda zero em desastre |
-| Restore/rebuild de Consolidação | RTO alvo ≤ 4 h para 1 milhão de lançamentos; projeção recuperável até os fatos disponíveis |
-| Outbox | Aviso se item pendente > 60 s; crítico > 5 min ou qualquer item suspenso |
-| Fila principal | Aviso idade > 60 s; crítico > 5 min; escalonar incidente SQS antes de 24 h de idade |
-| DLQ | Qualquer mensagem gera alerta; triagem em até 4 h; escalonar idade > 24 h |
-| Recursos | Aviso disco/banco > 70%, crítico > 85%; conexões limitadas a 5 por processo |
-| HTTP | Erros > 1% por 5 min ou ausência de instâncias saudáveis geram alerta |
-| Logs | Aplicação 30 dias; auditoria operacional 90 dias; sem payload financeiro sensível |
-| Backups AWS | Automáticos/PITR 35 dias; snapshot antes de migração destrutiva; restore mensal em homologação |
-| Revisão de crescimento | Abrir com 10 milhões de fatos, reconciliação > 5 min por 3 dias, restore/rebuild > 75% do RTO, armazenamento > 70% ou espaço sem duas gerações + snapshot + 20% de margem |
+| Latência | P95 ≤ 500 ms e P99 ≤ 1 s |
+| Convergência normal | 99% dos lançamentos refletidos em até 60 s |
+| Recuperação de backlog | 10.000 lançamentos em até 10 min após retomada, com escrita concorrente |
+| Disponibilidade AWS | 99,9% mensal por API como objetivo interno |
+| Falha de zona/processo | RTO alvo ≤ 15 min |
+| Restore de Transactions | RTO alvo ≤ 4 h e RPO alvo ≤ 5 min |
+| Restore/rebuild de Consolidation | RTO alvo ≤ 4 h para massa de referência |
 
-Os ensaios usam dados sintéticos. A independência é garantida pelo desenho no caminho de escrita, mas não implica capacidade infinita: crescimento de Outbox, armazenamento e conexões devem ser monitorados. Não bloquear a API apenas porque Consolidação ou broker estão indisponíveis; rejeitar com 503 quando a própria persistência não puder confirmar com segurança.
+Essas metas orientam uma futura homologação. Exceto pelas latências observadas no T15 local, elas **não foram demonstradas** nesta entrega.
+
+## Arquitetura-alvo AWS / SQS
+
+Parâmetros como long polling SQS, visibility timeout, redrive, retenção, Multi-AZ, backups/PITR, alarmes CloudWatch e políticas IAM/KMS pertencem à arquitetura-alvo AWS. O adaptador SQS e a infraestrutura AWS não existem no código entregue e não foram homologados.
+
+Valores de referência propostos para essa futura implementação incluem long polling de 20 s, lote até 10, visibility timeout inicial de 60 s e DLQ com retenção maior que a fila principal. Esses números devem ser recalibrados em homologação; não são evidência local.
+
+## Operação e capacidade
+
+A independência entre Transactions e Consolidation é uma propriedade arquitetural, mas não implica capacidade infinita. Outbox, filas, armazenamento, conexões e idade do backlog devem ser monitorados. A API de Transactions não deve ser bloqueada apenas porque Consolidation ou o broker estão indisponíveis; deve rejeitar quando sua própria persistência não puder confirmar o fato com segurança.
+
+A [estratégia de testes](../05-arquitetura-software/estrategia-testes.md) mantém cenários normativos mais amplos. A evidência realmente executada e seus limites estão em [docs/08-testes](../08-testes/validacao-local-final.md).

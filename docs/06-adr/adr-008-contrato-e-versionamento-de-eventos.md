@@ -4,7 +4,7 @@
 
 ## Contrato TransactionCreatedV1
 
-Este é o único exemplo normativo do payload. DTOs futuros em `CashFlow.Contracts` conterão apenas contratos de integração, sem domínio compartilhado.
+Este é o exemplo normativo do payload. Os DTOs em `CashFlow.Contracts` representam somente contratos de integração; não há compartilhamento de entidades de domínio entre os bounded contexts.
 
 ```json
 {

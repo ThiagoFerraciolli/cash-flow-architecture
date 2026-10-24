@@ -4,11 +4,11 @@
 
 Ambos os desafios pedem controle de lançamentos, consolidado diário, independência entre capacidades, pico de 50 req/s e perda máxima de 5% para o Consolidado. A entrega deve incluir desenho, testes, README com funcionamento/execução local, repositório público e documentação versionada. O desafio de Software exige C#; o de Soluções exige ainda capacidades/domínios, refinamento de requisitos e justificativas arquiteturais. Nem toda premissa arquitetural precisa ser codificada, mas implementação e testes permanecem itens obrigatórios.
 
-Diferenciais de Soluções incluem custos/licenças, observabilidade, segurança de integração e arquitetura de transição quando houver legado. Nenhum legado foi fornecido; portanto transição de legado é não aplicável ao caso, embora o caminho local→AWS esteja documentado como evolução de ambiente.
+Diferenciais do desafio de Soluções incluem custos/licenças, observabilidade, segurança de integração e Arquitetura de Transição **se necessária, considerando migração de legado**. O case não fornece um legado real. Para demonstrar a competência solicitada sem inventar uma situação existente, a entrega inclui uma [arquitetura de transição hipotética](../03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) com premissas explicitamente hipotéticas. Ela é independente da implantação local→AWS.
 
 ## Estado da entrega
 
-A entrega possui um corte local implementado e executável com C#/.NET, PostgreSQL, RabbitMQ, Keycloak e Jaeger, além da ferramenta administrativa de Recovery. A regressão local final registrada possui 89 testes aprovados, sem falhas ou skips. Ensaios operacionais executados e seus limites estão em [docs/08-testes](../08-testes/validacao-local-final.md).
+A entrega possui um corte local implementado e executável com C#/.NET, PostgreSQL, RabbitMQ, Keycloak e Jaeger, além da ferramenta administrativa de Recovery. O golden path final registrado em 23/10/2026 possui **90 testes aprovados, 0 falhas e 0 skips**, com build **0 warnings / 0 errors**. Ensaios operacionais executados e seus limites estão em [docs/08-testes](../08-testes/validacao-local-final.md).
 
 A arquitetura de produção AWS está documentada, mas não foi provisionada nem homologada nesta entrega. SQS, Cognito, ECS/Fargate, RDS Multi-AZ, IAM/KMS/WAF e demais componentes AWS são **arquitetura-alvo**, não evidência executada. Não existe adaptador SQS no código atual.
 

@@ -1,6 +1,6 @@
 # DAS — Documento de arquitetura da solução
 
-Escopo: controle de lançamentos e relatório diário dos dois desafios de arquitetura. O objetivo é preservar o registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e **arquitetura de implantação definida para AWS**. A AWS não foi provisionada nem demonstrada nesta entrega.
+Escopo: controle de lançamentos e relatório diário dos dois desafios de arquitetura. O objetivo é preservar o registro de fatos durante indisponibilidade da Consolidação, com operação local reproduzível e **arquitetura-alvo de implantação definida para AWS**. A AWS não foi provisionada nem demonstrada nesta entrega.
 
 ## Direcionadores e limites
 
@@ -43,6 +43,12 @@ Restore da própria fonte é procedimento de arquitetura-alvo e exige controles 
 
 APIs autenticam e autorizam conforme o [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md). T13 demonstra o fluxo local com Keycloak; TLS, IAM, KMS, Cognito e controles equivalentes pertencem à arquitetura-alvo AWS. Observabilidade local usa OpenTelemetry/Jaeger e foi exercitada em T14; observabilidade produtiva permanece dependente da implantação AWS.
 
+## Arquitetura de Transição — diferencial do desafio de Soluções
+
+O PDF de Soluções solicita Arquitetura de Transição apenas **se necessária, considerando migração de legado**. Nenhum legado real é descrito no case. Para demonstrar a abordagem sem transformar hipótese em fato, foi criada uma [visão de transição hipotética](arquitetura-transicao-hipotetica.md): parte de um monólito plausível no qual Lançamentos e Consolidação estão acoplados e descreve coexistência, ownership de dados, Anti-Corruption Layer, captura/publicação confiável, idempotência e reconciliação até a extração das capacidades.
+
+Essa transição hipotética de legado é uma preocupação diferente da escolha de infraestrutura. **Local→AWS não é tratado como Arquitetura de Transição de legado.** A AWS é a topologia de implantação alvo da solução já decomposta.
+
 ## Capacidade, disponibilidade e custo
 
 O requisito explícito de 50 req/s com perda máxima de 5% foi exercitado localmente em T15 durante 120 segundos: 6.000 requisições emitidas, 6.000 concluídas, 0 falhas e 0 dropped iterations. Esse resultado é evidência da janela local executada, não SLA ou prova de capacidade AWS.
@@ -63,5 +69,6 @@ Metas internas e configurações estão nos [parâmetros operacionais](../07-inf
 | Semântica RabbitMQ/SQS | ADR-010 |
 | Autenticação e autorização | ADR-011 |
 | API e software | Contratos HTTP; SDD |
+| Transição hipotética de legado | Arquitetura de Transição hipotética |
 
-A [matriz de conformidade](../01-requisitos/matriz-conformidade.md) separa cobertura documental de evidências. Sem legado informado, transição de legado não é necessária. O caminho da implementação local para a arquitetura-alvo AWS está documentado como plano futuro de implantação.
+A [matriz de conformidade](../01-requisitos/matriz-conformidade.md) separa cobertura documental de evidências. A transição de legado é apresentada como cenário hipotético porque o case não fornece um sistema legado real; a arquitetura-alvo AWS permanece documentada separadamente como decisão de implantação.

@@ -13,20 +13,15 @@ O Compose usa nove serviços permanentes: quatro processos de aplicação (`tran
 
 ## Caminho recomendado para o avaliador
 
-Em um clone novo, na raiz do repositório:
+Em um clone novo, na raiz do repositório, execute **um único comando**:
 
 ```sh
-cp .env.example .env
 sh tools/validate-local.sh
 ```
 
-Esse é o **golden path** de validação. O `.env.example` contém credenciais exclusivamente locais, não sensíveis e prontas para execução. O script não exige que o avaliador descubra manualmente usuários, senhas, connection strings ou variáveis `CASHFLOW_TEST_*`.
+Esse é o **golden path** de validação. Não é necessário criar `.env` manualmente: o script carrega `.env.example` como baseline e cria `.env` automaticamente quando ele não existe. Se `.env` já existir, ele funciona como override local. O `.env.example` contém somente credenciais demonstrativas para localhost; não reutilize esses valores em ambiente compartilhado ou produção.
 
-`tools/validate-local.sh` carrega o mesmo `.env` usado pelo Compose, deriva as variáveis de integração com os usuários/bancos/portas reais da topologia, sobe os containers com `--wait`, verifica readiness, restaura dependências em modo locked, compila e executa toda a solução de testes. Qualquer falha encerra o script com status diferente de zero.
-
-O script também cria `.env` automaticamente a partir de `.env.example` quando ele ainda não existe; o `cp` acima permanece explícito para deixar o bootstrap visível ao avaliador.
-
-> As credenciais do `.env.example` existem apenas para localhost. Não devem ser reutilizadas em ambiente compartilhado ou produção.
+`tools/validate-local.sh` deriva as variáveis de integração com os usuários/bancos/portas reais da topologia, sobe os containers com `--wait`, verifica readiness, restaura dependências em modo locked, compila e executa toda a solução de testes. Qualquer falha encerra o script com status diferente de zero.
 
 ## 1. Subir somente a solução
 
@@ -126,25 +121,17 @@ A forma suportada de executar a regressão completa é:
 sh tools/validate-local.sh
 ```
 
-Para transparência, o script equivale conceitualmente a:
+Para transparência, o script carrega `.env.example`, aplica opcionalmente `.env`, deriva `CASHFLOW_TEST_*`, executa `docker compose up -d --build --wait`, verifica readiness e então executa:
 
 ```sh
-set -a
-source .env
-set +a
-
-export CASHFLOW_TEST_POSTGRES="Host=127.0.0.1;Port=5433;Database=cashflow;Username=cashflow;Password=${POSTGRES_PASSWORD}"
-export CASHFLOW_TEST_CONSOLIDATION_POSTGRES="Host=127.0.0.1;Port=5434;Database=consolidation;Username=consolidation;Password=${CONSOLIDATION_POSTGRES_PASSWORD}"
-export CASHFLOW_TEST_RABBITMQ="amqp://cashflow:${RABBITMQ_PASSWORD}@127.0.0.1:5672/"
-
 dotnet restore --locked-mode
 dotnet build --no-restore
 dotnet test --no-build
 ```
 
-Não use `postgres/postgres` ou `guest/guest`: esses não são os usuários/credenciais da topologia entregue. Transactions usa usuário `cashflow`; Consolidation usa `consolidation`; RabbitMQ usa `cashflow`. O script evita divergência entre Compose e testes ao derivar tudo do mesmo `.env`.
+Não use `postgres/postgres` ou `guest/guest`: esses não são os usuários/credenciais da topologia entregue. Transactions usa usuário `cashflow`; Consolidation usa `consolidation`; RabbitMQ usa `cashflow`. O script evita divergência entre Compose e testes ao derivar tudo da mesma configuração.
 
-A evidência histórica anterior às últimas correções registrou **89 passed, 0 failed, 0 skipped**. Ela não é apresentada como regressão da revisão atual; o resultado atual deve ser obtido novamente pelo comando acima antes do fechamento.
+O golden path final executado em 23/10/2026 registrou **90 passed, 0 failed, 0 skipped**, com build **0 warnings / 0 errors**. Contagens anteriores são apenas histórico de evolução e não representam o gate corrente.
 
 ## 5. Ensaios operacionais disponíveis
 

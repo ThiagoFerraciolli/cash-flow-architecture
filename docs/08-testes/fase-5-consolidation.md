@@ -1,6 +1,6 @@
 # Evidência histórica — Fase 5 de Consolidação
 
-> **ARQUIVO HISTÓRICO.** Este documento registra uma execução intermediária de 22/10/2026 e **não representa o estado final da entrega**. Para avaliação use [validação local final](validacao-local-final.md) e [rastreabilidade de testes da entrega](production-grade-local-traceability.md). O gate final registrado é **89 passed, 0 failed, 0 skipped**; o ambiente final inclui Keycloak, Jaeger, Recovery e os demais endurecimentos posteriores.
+> **ARQUIVO HISTÓRICO.** Este documento registra uma execução intermediária de 22/10/2026 e **não representa o estado final da entrega**. Para avaliação use [validação local final](validacao-local-final.md) e [rastreabilidade de testes da entrega](production-grade-local-traceability.md). O gate automatizado corrente é **90 passed, 0 failed, 0 skipped**, com build **0 warnings / 0 errors**; o ambiente final inclui Keycloak, Jaeger, Recovery e os demais endurecimentos posteriores.
 
 Este arquivo é mantido apenas como trilha histórica porque contém evidência de uma etapa anterior da implementação. Números, branches, topologia e limitações abaixo não devem substituir a documentação final.
 
@@ -17,6 +17,6 @@ Este arquivo é mantido apenas como trilha histórica porque contém evidência 
 
 ## Por que este registro não é evidência final
 
-Depois desta fase foram adicionados/alterados identidade local com Keycloak, observabilidade distribuída, Recovery com lease/fencing, ensaios T06/T09/T10/T13/T14/T15/T18 e testes adicionais. Portanto, qualquer avaliação do desafio deve usar os documentos finais citados no início deste arquivo.
+Depois desta fase foram adicionados/alterados identidade local com Keycloak, observabilidade distribuída, Recovery com lease/fencing, ensaios T06/T09/T10/T13/T14/T15/T18, autorização de leitura de Transactions e testes adicionais. Portanto, qualquer avaliação do desafio deve usar os documentos finais citados no início deste arquivo.
 
 O Git preserva os detalhes completos da implementação intermediária; a documentação final evita manter duas versões concorrentes da verdade operacional.

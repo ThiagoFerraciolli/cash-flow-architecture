@@ -29,25 +29,26 @@ RabbitMQ é o único transporte implementado. **SQS Standard é a escolha da arq
 
 Pré-requisitos: Docker com Compose v2, SDK .NET 10, `curl` e acesso à internet no primeiro build.
 
-Para um clone novo, a validação local completa exige somente:
+Em um clone novo, a validação local completa é executada com **um único comando**:
 
 ```sh
-cp .env.example .env
 sh tools/validate-local.sh
 ```
 
-O `.env.example` já contém **credenciais locais não sensíveis e prontas para execução**. Não é necessário inventar senhas, connection strings ou variáveis de teste para validar o projeto. O script usa `.env.example` como baseline e `.env` como override local, portanto também tolera um `.env` parcial. Ele:
+Não é necessário criar o `.env` manualmente. O script carrega `.env.example` como baseline e, quando `.env` não existe, cria automaticamente uma cópia local antes de subir o ambiente. Se `.env` já existir, ele é tratado como override local. O `.env.example` contém somente credenciais demonstrativas para o ambiente local; não reutilize esses valores em ambiente compartilhado ou produção.
 
-1. carrega a configuração local;
+O script:
+
+1. carrega a configuração local e cria `.env` automaticamente quando necessário;
 2. deriva as connection strings e a URI RabbitMQ usadas pelos testes a partir das mesmas credenciais do Compose;
 3. sobe toda a topologia com `docker compose up -d --build --wait`;
 4. valida readiness das APIs;
 5. executa `dotnet restore --locked-mode` e `dotnet build --no-restore`;
 6. executa unit, contract, integration e E2E com `dotnet test --no-build`.
 
-Se qualquer etapa falhar, o script encerra com código diferente de zero. Para ambiente compartilhado/produção, **não reutilize** as credenciais locais do `.env.example`.
+Se qualquer etapa falhar, o script encerra com código diferente de zero.
 
-Para somente subir a aplicação:
+Para somente subir a aplicação, sem executar o gate completo de validação:
 
 ```sh
 cp .env.example .env

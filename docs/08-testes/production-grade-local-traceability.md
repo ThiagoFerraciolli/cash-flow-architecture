@@ -10,7 +10,7 @@ Este registro separa a [estratégia normativa T01–T20](../05-arquitetura-softw
 | T08 | AUTOMATED | Lease/publicação e crash após commit antes do ACK com redelivery. |
 | T09 | AUTOMATED + OPERATIONAL PASS / PARTIAL | Mensagem inválida → DLQ +1, `message_id` encontrado, projeção inalterada. Redrive completo não executado. |
 | T10–T12 | AUTOMATED + T10 OPERATIONAL PASS / PARTIAL | T10 altera geração e reconstrói data isolada 100/20/80, contagem 2. Testes cobrem expiração/tomada/fencing. Não demonstra toda reconciliação T10, crash windows T11 nem retenção T12. |
-| T13 | OPERATIONAL PASS local / PARTIAL | 401 sem token; 403 reader em escrita; 201 demo em escrita; 200 reader em leitura. Cognito/segurança AWS não executados. |
+| T13 | OPERATIONAL PASS local / PARTIAL | 401 sem token; 403 reader em escrita; 201 demo em escrita; 200 reader em leitura. A regressão automatizada final também cobre GET anônimo → 401 e token somente de escrita → 403 nas rotas de leitura de Transactions. Cognito/segurança AWS não executados. |
 | T14 | OPERATIONAL PASS local / PARTIAL | Métricas locais e trace Jaeger cruzando API → DB/Outbox → publisher → RabbitMQ → consumer → DB. Sem stack produtiva. |
 | T15 | OPERATIONAL PASS local / PARTIAL | 6.000/6.000 GETs em 120 s a 50 req/s; 0 falhas/dropped; P50 2,964 ms, P95 4,372 ms, P99 6,052 ms. Não executou 10 min/30.000 requests/100.000 fatos. |
 | T16 | NOT EXECUTED | Backlog de 10.000 eventos não ensaiado. |
@@ -24,12 +24,12 @@ A ferramenta administrativa lê `financial_transactions` em snapshot PostgreSQL 
 
 ## Gate final
 
-A regressão final local registrada foi:
+O golden path final executado em 23/10/2026 registrou:
 
 ```text
 dotnet restore --locked-mode  PASS
-dotnet build --no-restore     PASS
-dotnet test --no-build        89 passed / 0 failed / 0 skipped
+dotnet build --no-restore     PASS — 0 warnings / 0 errors
+dotnet test --no-build        90 passed / 0 failed / 0 skipped
 ```
 
-Execuções anteriores com 80 e 84 testes são histórico de evolução e não o gate final da entrega. Detalhes dos ensaios estão em [validação local final](validacao-local-final.md).
+Execuções anteriores com 80, 84 e 89 testes são histórico de evolução e não o gate corrente da entrega. Detalhes dos ensaios estão em [validação local final](validacao-local-final.md).

@@ -15,6 +15,6 @@
 | PRE-011 | Pico de 50 req/s exercitado em GET por data | Ensaio principal de consulta e complementar de processamento |
 | PRE-012 | Autenticação de clientes técnicos | Keycloak local, Cognito AWS e permissões explícitas |
 | PRE-013 | Referência AWS us-east-1 em duas zonas | Dados sintéticos até validação de residência para cliente real |
-| PRE-014 | Execução local usa RabbitMQ | Dois adaptadores e homologação SQS real |
+| PRE-014 | Execução local usa RabbitMQ; SQS Standard é a decisão de transporte da arquitetura-alvo AWS | Somente o adaptador RabbitMQ existe na entrega; SQS exige implementação e homologação antes de adoção AWS |
 
 Limites monetários, de data, retenção e metas estão em [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). Não há pendência de aprovação dessas escolhas para o desafio. Evolução de negócio altera premissas por nova decisão e atualização da rastreabilidade.

@@ -1,6 +1,6 @@
 # C4 — Componentes de software
 
-Cada diagrama decompõe os processos de um serviço. Interfaces são portas; adaptadores de infraestrutura realizam acesso externo.
+Cada diagrama decompõe os processos de um serviço. Interfaces são portas; adaptadores de infraestrutura realizam acesso externo. A visão distingue o adaptador **implementado localmente** da substituição prevista na arquitetura-alvo AWS.
 
 ## Lançamentos
 
@@ -9,26 +9,24 @@ flowchart LR
     HTTP[API: autenticacao e contrato HTTP] --> UC[CriarLancamento]
     HTTP --> QUERY[ConsultarLancamentos]
     UC --> DOM[Entidade e invariantes]
-    UC --> IDEM[Porta de idempotencia]
-    UC --> REPO[Porta de fatos financeiros]
-    UC --> OUT[Porta de Outbox]
-    IDEM --> DB[(PostgreSQL)]
-    REPO --> DB
-    OUT --> DB
+    UC --> STORE[Porta de criacao atomica]
+    STORE --> DB[(PostgreSQL)]
     QUERY --> DB
     WORK[Worker publicador] --> LEASE[Reserva e retentativa]
     LEASE --> DB
     WORK --> PUB[Porta de publicacao]
-    PUB --> ADP[Adaptador RabbitMQ ou SQS]
+    PUB --> RABBIT[Adaptador RabbitMQ implementado]
+    PUB -. evolucao AWS .-> SQS[Adaptador SQS futuro]
 ```
 
-CriarLancamento usa uma Unit of Work para chave, fato e Outbox. Reserva do publicador é transação diferente e curta; chamada de rede ocorre fora dela. Autenticação e autorização antecedem o caso de uso, e a identidade confiável é passada para auditoria/idempotência.
+`CriarLancamento` delega ao store transacional a persistência atômica da chave de idempotência, fato financeiro e Outbox em uma transação PostgreSQL local. A reserva do publicador é transação diferente e curta; chamada de rede ocorre fora dela. Autenticação e autorização antecedem o caso de uso, e a identidade confiável é passada para auditoria/idempotência.
 
 ## Consolidação
 
 ```mermaid
 flowchart LR
-    ADP[Adaptador RabbitMQ ou SQS] --> WORK[Worker consumidor]
+    RABBIT[Adaptador RabbitMQ implementado] --> WORK[Worker consumidor]
+    SQS[Adaptador SQS futuro] -. evolucao AWS .-> WORK
     WORK --> APPLY[AplicarLancamento]
     APPLY --> CONTROL[Controle de manutencao e geracao]
     APPLY --> DEDUP[Registro de identidade financeira]
@@ -40,10 +38,10 @@ flowchart LR
     QUERY --> DB
 ```
 
-Controle, identidade e totais participam da mesma transação. O adaptador confirma somente após resultado comprometido no banco; erro transitório/permanente é traduzido em operação de transporte específica. Ferramenta administrativa usa portas próprias para snapshots/gerações, sem expor acesso cruzado no serviço.
+Controle, identidade e totais participam da mesma transação. No RabbitMQ local, o adaptador confirma somente após o commit da projeção; falhas isoladas/permanentes usam retry/DLQ e indisponibilidade compartilhada da projeção pausa o consumo sem ACK. A ferramenta administrativa de Recovery usa componentes próprios para snapshot e gerações, sem transformar as APIs de negócio em acesso cruzado entre bancos.
 
 ## Dependências e componentes transversais
 
-API/Worker → Application → Domain. Infrastructure → Application/Domain quando necessário ao mapeamento. A raiz de composição referencia Infrastructure para injeção. Contratos versionados não contêm regras compartilhadas. Clock, serialização canônica, configuração validada, Problem Details e OpenTelemetry são componentes transversais. Testes de arquitetura verificam ausência de dependência de SDK/ORM no domínio.
+API/Worker → Application → Domain. Infrastructure → Application/Domain quando necessário ao mapeamento. A raiz de composição referencia Infrastructure para injeção. O contrato de evento v1 é versionado no payload e validado pelo consumidor; o projeto `CashFlow.Contracts` não contém DTO compartilhado do evento nesta entrega. Configuração validada, serialização/canonicalização determinística onde necessária, Problem Details e OpenTelemetry são componentes transversais. O acesso PostgreSQL implementado usa Npgsql diretamente; não há ORM no domínio nem EF Core nesta entrega.
 
 Detalhamento no [SDD](sdd.md); contratos e decisões são referenciados em vez de reproduzidos integralmente nesta visão.

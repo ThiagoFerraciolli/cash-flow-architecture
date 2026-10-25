@@ -21,7 +21,7 @@ sequenceDiagram
     end
 ```
 
-Falha em qualquer passo antes do commit reverte tudo. Timeout pode deixar cliente sem resposta após commit; retry com mesma chave recupera a resposta. Ausência de confirmação nunca autoriza gerar uma nova chave automaticamente.
+Falha em qualquer passo antes do commit reverte tudo. Timeout pode deixar cliente sem resposta após commit; retry com a mesma chave recupera a resposta. Ausência de confirmação nunca autoriza gerar nova chave automaticamente.
 
 ## Publicação com reserva
 
@@ -29,28 +29,28 @@ Falha em qualquer passo antes do commit reverte tudo. Timeout pode deixar client
 sequenceDiagram
     participant P as Publicador
     participant D as Banco Lancamentos
-    participant Q as Broker
+    participant Q as RabbitMQ
     P->>D: BEGIN, SKIP LOCKED, gravar lease/token, COMMIT
     P->>Q: Publicar fora da transacao
     alt confirmado
-        Q-->>P: Confirmacao
+        Q-->>P: Publisher confirm
         P->>D: Atualizar published_at condicionado ao token
     else falha
         P->>D: Registrar tentativa/backoff ou suspensao
     end
 ```
 
-Queda após envio permite republicação. Reserva vencida admite captura por outra instância; atualização por token antigo é rejeitada. Item suspenso preserva trabalho e exige operação.
+Queda após envio permite republicação. Reserva vencida admite captura por outra instância; atualização por token antigo é rejeitada. Item suspenso preserva trabalho e exige operação. Este fluxo descreve a implementação RabbitMQ local; SQS pertence à arquitetura-alvo.
 
 ## Consumo idempotente
 
 ```mermaid
 sequenceDiagram
-    participant Q as Broker
+    participant Q as RabbitMQ
     participant W as Consumidor
     participant D as Banco Consolidacao
     Q->>W: Evento
-    W->>D: BEGIN, FOR SHARE em projection_control
+    W->>D: BEGIN, trava compartilhada em projection_control
     alt em manutencao
         W->>D: Encerrar sem alteracao
         W->>W: Pausar recepcao e nao confirmar entrega
@@ -62,33 +62,42 @@ sequenceDiagram
             W->>D: Conferir hash e tratar conflito
         end
         W->>D: COMMIT se fato valido
-        W->>Q: Ack ou DeleteMessage somente apos commit
+        W->>Q: Ack somente apos commit
     end
 ```
 
-Identidade divergente provoca rollback e fluxo de erro definitivo; não confirmar como duplicata válida. Falha transitória permite retry; permanente segue DLQ. O ADR-010 detalha repasse confirmado RabbitMQ e política SQS.
+Identidade divergente provoca rollback e fluxo de erro definitivo; não confirmar como duplicata válida. Falha transitória permite retry; permanente segue DLQ. O ADR-010 distingue esse comportamento RabbitMQ da especificação futura de SQS.
 
-## Reconstrução e eventos em trânsito
+## Reconstrução com lease e fencing
 
 ```mermaid
 sequenceDiagram
-    participant O as Operador
+    participant O as Recovery
     participant C as Banco Consolidacao
     participant T as Banco Lancamentos
     participant W as Consumidor
-    O->>C: FOR UPDATE, esperar consumos, maintenance=true, COMMIT
+    O->>C: Adquirir lease exclusiva + owner token + expiracao
+    O->>C: maintenance=true sob ownership
     W->>C: Detectar manutencao e pausar sem ack
-    O->>T: Snapshot consistente de todos os fatos
+    O->>T: Ler snapshot consistente dos fatos
     Note over T: Novos lancamentos continuam permitidos
-    O->>C: Construir geracao nova: totais e identidades
-    O->>O: Validar contra o mesmo snapshot
-    O->>C: Trocar geracao e remover manutencao atomicamente
-    W->>C: Retomar: anteriores ao snapshot sao duplicatas
-    W->>C: Aplicar fatos posteriores ao snapshot
+    loop durante o rebuild
+        O->>C: Renovar lease condicionada ao owner token
+    end
+    O->>C: Construir nova geracao
+    O->>O: Validar resultado contra o snapshot
+    O->>C: Ativar nova geracao e liberar manutencao com fencing
+    W->>C: Retomar processamento
 ```
 
-A pausa precede o snapshot para não perder eventos já confirmados durante a construção. Crash mantém estado persistente recuperável. A API lê geração antiga durante manutenção e nova após troca, sem mistura. Reconciliação e restore seguem o [procedimento completo](../07-infraestrutura/recuperacao-e-reconciliacao.md).
+A lease impede dois rebuilds administrativos válidos simultaneamente. Renovação e liberação exigem o mesmo owner token; um processo antigo que perdeu a lease não pode ativar, renovar ou liberar a manutenção depois que outro owner assumiu.
+
+Se o processo Recovery morrer, o estado não é automaticamente retomado pelo próprio processo. Após expirar `maintenance_expires_at`, o Worker deixa de considerar a manutenção válida e volta ao processamento normal. O operador deve iniciar um novo rebuild, que adquire nova lease e novo token. Esse comportamento de expiração/fencing foi exercitado no T10 local em escopo limitado.
+
+A API de Consolidação serve a geração ativa anterior durante a construção e passa à nova somente após a troca válida, evitando mistura entre gerações. O snapshot é materializado em memória na ferramenta local como trade-off aceitável para o estudo de caso; uma implementação produtiva com volume elevado deve processar incrementalmente sem abandonar lease, geração e fencing. Reconciliação e restore seguem o [procedimento completo](../07-infraestrutura/recuperacao-e-reconciliacao.md).
 
 ## Falhas de disponibilidade
 
-Se toda Consolidação parar, Lançamentos continua e o transporte acumula. Se broker parar, Outbox acumula. Se retenção expirar, reconstrução usa fatos da origem. Se o banco de Lançamentos falhar, API não confirma e devolve erro retentável. Alertas de capacidade evitam interpretar acumulação como armazenamento infinito.
+Se toda a Consolidação parar, Lançamentos continua e o transporte acumula. Se RabbitMQ parar, a Outbox acumula e o caminho HTTP de Lançamentos continua dependente apenas de seu próprio banco e identidade já validável. Se a retenção do transporte produtivo expirar, a estratégia de recuperação depende dos fatos persistidos na origem. Se o banco de Lançamentos falhar, a API não confirma novo lançamento. Alertas de capacidade evitam interpretar acumulação como armazenamento infinito.
+
+A dependência de `jaeger` saudável usada no Docker Compose é conveniência de bootstrap determinístico do ambiente local; observabilidade não deve ser dependência de disponibilidade dos processos na arquitetura de produção.

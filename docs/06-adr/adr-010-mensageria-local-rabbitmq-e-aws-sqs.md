@@ -1,51 +1,51 @@
-# ADR-010 — RabbitMQ local e SQS na AWS
+# ADR-010 — Semântica de transporte: RabbitMQ local e SQS AWS
 
 - **Direcionadores:** execução local independente de cloud, RNF-001/006/007/014 e facilidade operacional na AWS.
+- **Decisão tecnológica:** [ADR-007](adr-007-estrategia-de-mensageria.md).
 
-## Alternativas e decisão
+## Escopo desta decisão
 
-Uma fila AWS real localmente exigiria conta, rede e credenciais. Um emulador SQS permitiria testes de desenvolvimento, mas não provaria o comportamento do serviço gerenciado. RabbitMQ é executável em containers e foi escolhido para o ambiente local. SQS Standard permanece na AWS para reduzir operação de infraestrutura. RabbitMQ também poderia operar na cloud, mas essa não é a topologia adotada.
+O ADR-007 define **por que** RabbitMQ foi adotado localmente e SQS Standard foi escolhido para a arquitetura-alvo AWS. Este ADR define **como** as propriedades de entrega, confirmação, retry e DLQ devem funcionar em cada transporte.
 
-Implementar dois adaptadores reais, selecionados por configuração. Ambos transportam o contrato do ADR-008 e confirmam consumo somente após commit. Portabilidade se aplica às regras de negócio; operação e testes são específicos por transporte.
+A entrega atual contém implementação real de **RabbitMQ**. O comportamento de **SQS** abaixo é especificação de arquitetura-alvo: não existe adaptador SQS no código entregue e nenhuma homologação AWS foi executada.
 
 ## Mapeamento
 
-| Propriedade | RabbitMQ local | SQS na AWS |
+| Propriedade | RabbitMQ local — implementado | SQS AWS — alvo |
 |---|---|---|
 | Protocolo | AMQP 0-9-1 | API HTTPS/SigV4 |
-| Destino lógico | Exchange direto `cashflow.events`, routing key `transaction.created.v1`, fila quorum `consolidation.transactions.v1` | Fila Standard `cashflow-consolidation-v1` |
-| Publicação | Persistente, `mandatory`, publisher confirm e ausência de retorno por falta de rota | Sucesso de `SendMessage`; tratar falhas individuais se houver batch |
+| Destino lógico | Exchange `cashflow.events`, routing key `transaction.created.v1`, fila `consolidation.transactions.v1` | Fila Standard `cashflow-consolidation-v1` |
+| Publicação | Persistente, `mandatory`, publisher confirm e ausência de retorno por falta de rota | Sucesso de `SendMessage`; tratar falhas individuais em batch |
 | Consumo | Ack manual após commit | `DeleteMessage` após commit |
-| Falha/conexão | Entrega não confirmada pode retornar | Mensagem reaparece após visibilidade |
+| Falha/conexão | Entrega não confirmada pode retornar | Mensagem reaparece após visibility timeout |
 | Ordenação | Não depender de ordem | Não depender de ordem |
-| Erro definitivo | Publicação confirmada na fila de erro e só então ack da original | Sem delete; redrive policy após limite |
-| Retenção | Volumes persistentes e controle de capacidade | Principal 7 dias, DLQ 14 dias |
+| Erro definitivo | Publicar na fila de erro e somente então ack da original | Sem delete; redrive policy após limite |
+| Retenção | Volume persistente e controle local de capacidade | Principal 7 dias, DLQ 14 dias na referência AWS |
 | Escala | Consumidores concorrentes; nó único local não oferece HA | Serviço gerenciado; escala dos Workers independente |
 
-## Retentativa RabbitMQ
+## RabbitMQ — comportamento da implementação local
 
-O adaptador republica falhas transitórias para filas quorum de espera com TTL de 5, 15, 30 ou 60 segundos e cabeçalho `retryAttempt`. Usa publicação persistente, mandatory e confirmação antes do ack da original. Cada fila de espera possui DLX para a fila principal. Habilitar dead-lettering pelo menos uma vez nas quorum queues, com `overflow=reject-publish` e política compatível com a versão fixada. A perda do confirm deixa a original sem ack e pode gerar duplicata, absorvida pela deduplicação financeira.
+A topologia local usa exchange durável `cashflow.events`, routing key `transaction.created.v1` e fila principal `consolidation.transactions.v1`. O publicador da Outbox usa publicação persistente, `mandatory` e confirmação do broker; falha de publicação mantém o item da Outbox pendente para nova tentativa. O consumidor confirma a mensagem somente após o commit da Consolidação.
 
-Após cinco tentativas, publicar na fila quorum `consolidation.transactions.v1.dlq` pelo mesmo protocolo de confirmação. Erro definitivo vai diretamente para ela. Se o destino de retry/DLQ estiver indisponível, manter original sem ack, pausar novos recebimentos e reconectar com backoff; não executar requeue em laço apertado. A fila principal usa delivery-limit 100 e DLX seguro para DLQ, separando reconexões das cinco tentativas de aplicação; nunca descartar silenciosamente em reconexões repetidas. Redrive preserva payload e identidades; reinicia somente contador técnico, com auditoria.
+Falhas transitórias de processamento usam filas de espera com TTL e retorno à fila principal. Erros permanentes seguem para DLQ. A implementação deve evitar requeue em laço apertado e preservar payload e identidades em retentativas. Duplicatas possíveis por redelivery são absorvidas pela idempotência financeira descrita no ADR-005.
 
-Falha compartilhada da base de Consolidação não percorre as filas de espera por mensagem. O consumidor cancela o recebimento, devolve a entrega em curso uma única vez e só volta após a readiness do banco. As cinco tentativas são reservadas a falha isolada cuja causa ainda não foi classificada. Contrato inválido segue diretamente para DLQ.
+Falha compartilhada do banco de Consolidação não deve transformar indisponibilidade sistêmica em uma sequência agressiva de retries por mensagem: o Worker sinaliza indisponibilidade/readiness e retoma quando a dependência volta. O cenário operacional executado T09 comprovou somente a parte limitada de mensagem permanentemente inválida chegando à DLQ sem alterar a projeção; redrive operacional completo não foi executado.
 
-## Retentativa SQS
+## SQS — especificação da arquitetura-alvo
 
-O consumidor renova visibility timeout enquanto processa. Diante de falha compartilhada da base, estende a visibilidade das mensagens já recebidas e interrompe long polling; readiness restabelecida libera a retomada. Falha definitiva não executa `DeleteMessage` e pode ajustar a visibilidade para acelerar o redrive. Falha isolada permanece sem delete até o limite da redrive policy. O contador de recebimentos pertence ao SQS e pode avançar em corridas ou indisponibilidades longas; chegada à DLQ exige triagem ou redrive, nunca exclusão automática.
+Na AWS, a decisão é SQS Standard. O consumidor deverá renovar visibility timeout durante processamento longo, executar `DeleteMessage` somente após commit e usar redrive policy para DLQ. Falha compartilhada do banco deve interromper novos recebimentos e preservar mensagens já recebidas por extensão de visibilidade. Falha permanente não deve ser silenciosamente descartada.
 
-## Gerações físicas para restore da fonte
+Essas regras são requisitos para o futuro adaptador SQS, não descrição do código atual. RabbitMQ local não valida IAM, KMS, quotas, visibility timeout, redrive policy nem comportamento real do serviço SQS. A homologação AWS deverá executar invariantes equivalentes e testes específicos do transporte gerenciado.
 
-Os nomes acima são destinos lógicos. Em restore de Lançamentos, criar destinos físicos novos com sufixo imutável de recuperação, por exemplo `cashflow-consolidation-v1-r<runId>`, e atualizar publicador e consumidor por configuração auditada. Fila principal, retries e DLQ antigos ficam isolados e somente leitura operacional até o encerramento do incidente; não se faz redrive entre gerações. No ambiente local, o ensaio equivalente usa novo conjunto de filas ou novo virtual host. Rebuild normal de Consolidação não troca filas.
+## Restore da fonte
 
-## Limites e validação
+Os nomes de filas são destinos lógicos. Em restore de Lançamentos na arquitetura-alvo, uma nova geração física de destinos pode ser criada para isolar mensagens anteriores ao ponto restaurado. Rebuild normal da Consolidação não exige troca de filas. O procedimento normativo está em [recuperação e reconciliação](../07-infraestrutura/recuperacao-e-reconciliacao.md).
 
-RabbitMQ não valida IAM, KMS, quotas, visibilidade ou expiração SQS. A homologação AWS deve executar a mesma suíte de invariantes mais testes próprios do SQS. Dados locais são sintéticos; não há migração automática de mensagens RabbitMQ para SQS. O plano de implantação define a troca de ambiente.
+## Consequências
 
-Referências oficiais consultadas em 22/10/2026: [confirmações RabbitMQ](https://www.rabbitmq.com/docs/confirms), [dead-letter exchanges](https://www.rabbitmq.com/docs/dlx), [quorum queues](https://www.rabbitmq.com/docs/quorum-queues), [retenção SQS](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html).
+- Portabilidade aplica-se às regras de negócio e ao contrato de integração, não à equivalência operacional entre brokers.
+- A evidência local demonstra RabbitMQ; não demonstra SQS.
+- Introduzir o adaptador SQS exigirá implementação, testes e homologação antes de produção.
+- Não há migração automática de mensagens RabbitMQ para SQS.
 
-## Topologia RabbitMQ de referência
-
-Exchange `cashflow.events` direto/durável, binding da principal em `transaction.created.v1`. Exchange direto/durável `cashflow.retry`, com routing keys `retry.5s`, `retry.15s`, `retry.30s`, `retry.60s`; filas quorum correspondentes `consolidation.retry.5s`, `.15s`, `.30s`, `.60s` com TTL fixo por fila e DLX `cashflow.events`/routing key `transaction.created.v1`. Exchange `cashflow.errors` direto/durável, binding para `consolidation.transactions.v1.dlq` em `transaction.created.v1.failed`. A fila principal referencia esse DLX para limite nativo; retry final da aplicação publica diretamente nesse exchange com confirmação.
-
-Definir filas/exchanges/bindings antes de iniciar publicador; falha de rota mantém Outbox pendente. Nas filas quorum que transferem por DLX, usar política `dead-letter-strategy=at-least-once`, `overflow=reject-publish` e feature flags compatíveis. No local, limite inicial por fila de 1 GiB e alarme de disco em 70%; ao atingir limite, rejeitar novas publicações para preservar origem, sem drop-head. Rejeição do broker deve ser tratada como envio não confirmado. Não configurar TTL de negócio na principal ou DLQ.
+Referências de tecnologia usadas no desenho: [RabbitMQ publisher confirms](https://www.rabbitmq.com/docs/confirms), [RabbitMQ dead-letter exchanges](https://www.rabbitmq.com/docs/dlx), [RabbitMQ quorum queues](https://www.rabbitmq.com/docs/quorum-queues) e [Amazon SQS quotas/retention](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html).

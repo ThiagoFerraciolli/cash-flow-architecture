@@ -4,21 +4,21 @@ Cada serviço possui banco, credenciais e migrations próprios. Não há leitura
 
 ## Lançamentos
 
-| Tabela | Chaves e dados principais | Ciclo de vida |
+| Tabela | Chaves e dados principais | Ciclo de vida na entrega |
 |---|---|---|
 | financial_transactions | id UUID PK; creation_event_id UUID UNIQUE; type; amount numeric(14,2); description; occurred_at; business_date; created_at; actor_issuer; actor_client_id | Imutável, sem limpeza automática |
-| idempotency_records | PK (issuer, client_id, key); request_hash; canonical_version; transaction_id UNIQUE; response_status; response_body mínimo; created_at | Retido junto ao fato, sem expiração |
-| outbox_messages | event_id PK; aggregate_id FK; payload; headers; state; published_at; attempts; next_attempt_at; lease_token; lease_until; last_error | Limpar apenas publicados há mais de 30 dias |
+| idempotency_records | PK (issuer, client_id, key); request_hash; canonical_version; transaction_id UNIQUE; response_status; response_body mínimo; created_at | Retido junto ao fato, sem expiração automática |
+| outbox_messages | event_id PK; aggregate_id FK; payload; headers; state; published_at; attempts; next_attempt_at; lease_token; lease_until; last_error | Sem job de limpeza implementado; retenção de publicados é decisão operacional futura |
 
-Estados normativos da Outbox: `PENDING` para item elegível ou aguardando nova tentativa, `PUBLISHED` após confirmação do broker e persistência de `published_at`, e `SUSPENDED` quando o item deixa o ciclo automático após falhas persistentes e exige ação operacional. Lease não cria um quarto estado: `lease_token` e `lease_until` representam apenas a reserva temporária de um item `PENDING`.
+Estados implementados da Outbox: `PENDING` para item elegível ou aguardando nova tentativa, `PUBLISHED` após confirmação do broker e persistência de `published_at`, e `SUSPENDED` quando o item deixa o ciclo automático após falhas persistentes. Lease não cria um quarto estado: `lease_token` e `lease_until` representam apenas a reserva temporária de um item `PENDING`.
 
 ```mermaid
 erDiagram
-    FINANCIAL_TRANSACTION ||--o| OUTBOX_MESSAGE : "produz; Outbox publicada pode ser limpa"
+    FINANCIAL_TRANSACTION ||--o| OUTBOX_MESSAGE : "produz; evento permanece associado ao fato"
     FINANCIAL_TRANSACTION ||--|| IDEMPOTENCY_RECORD : "identifica operacao"
 ```
 
-A cardinalidade da Outbox considera a limpeza posterior; no commit de criação existe exatamente um evento. A chave de idempotência e o fato são inseridos atomicamente. Identificador do lançamento pode ser gerado antes da reserva; FK da resposta para o fato deve ser diferível até commit ou preenchida após inserção do fato dentro da mesma transação. Não deixar reserva órfã confirmada.
+No commit de criação existe exatamente um evento de Outbox associado ao fato. A chave de idempotência e o fato são inseridos atomicamente. O identificador do lançamento é gerado antes da reserva e a FK de idempotência é `DEFERRABLE INITIALLY DEFERRED`, permitindo que a integridade seja verificada no commit da transação.
 
 ## Consolidação
 
@@ -28,11 +28,11 @@ A cardinalidade da Outbox considera a limpeza posterior; no commit de criação 
 | projection_generations | generation_id PK; status; created_at; activated_at; snapshot_manifest |
 | daily_consolidations | PK (generation_id, business_date); total_credits numeric(28,2); total_debits numeric(28,2); transaction_count bigint; last_updated_at |
 | processed_transactions | PK (generation_id, transaction_id); UNIQUE (generation_id, event_id); business_date; type; amount; fact_hash; processed_at |
-| recovery_runs (alvo futuro) | run_id PK; operador; motivo; estado; geração anterior/nova; manifesto; contagens; hashes; horários; não criada pelas migrations locais |
+| recovery_runs (arquitetura-alvo/evolução) | run_id PK; operador; motivo; estado; geração anterior/nova; manifesto; contagens; hashes; horários; não criada pelas migrations locais |
 
-A migration inicial cria uma geração vazia ACTIVE e a linha única de controle apontando para ela, com maintenance=false; a segunda acrescenta a expiração da lease. O Recovery local usa essa linha para ownership e fencing. A trilha `recovery_runs` completa permanece projetada.
+A migration inicial cria uma geração vazia ACTIVE e a linha única de controle apontando para ela, com maintenance=false; a segunda acrescenta a expiração da lease. O Recovery local usa essa linha para ownership e fencing. A trilha `recovery_runs` completa permanece projetada e não deve ser interpretada como tabela existente.
 
-`ProcessedTransaction` é o registro durável do efeito financeiro e substitui a proposta anterior de deduplicação somente por eventId. Reconstrução popula totais e identidades na mesma geração. Retenção da geração ativa acompanha os fatos; gerações inativas ficam 7 dias para auditoria e são removidas somente após encerramento operacional.
+`ProcessedTransaction` é o registro durável do efeito financeiro. Reconstrução popula totais e identidades na mesma geração. **Não existe job de retenção/remoção automática de gerações inativas demonstrado nesta entrega.** Qualquer janela de retenção para produção deve ser definida e implementada como política operacional, considerando auditoria e custo, antes de habilitar limpeza.
 
 Saldo é calculado como créditos menos débitos na leitura, sem coluna mutável independente. Valor individual entre 0,01 e 999.999.999,99, reforçado por CHECK; tipo CREDIT/DEBIT; transactionCount não negativo. Rejeitar escala acima de duas casas antes de persistir para impedir arredondamento implícito do numeric. Overflow de total/contagem aborta transação e gera incidente. Auditoria operacional tem retenção própria; identidades financeiras não são logs descartáveis.
 

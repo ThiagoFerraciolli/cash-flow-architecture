@@ -1,12 +1,12 @@
 # Contratos HTTP
 
-Contrato a implementar em ASP.NET Core e publicar futuramente como OpenAPI. Exemplos são especificação, não respostas de uma aplicação existente.
+Este documento descreve os contratos HTTP **implementados** pelas APIs ASP.NET Core da entrega local. Os exemplos representam o comportamento suportado pelo código; a cobertura efetivamente exercitada é registrada separadamente em `docs/08-testes`. A entrega não publica especificação OpenAPI/Swagger; isso não é requisito obrigatório do desafio e permanece possível evolução de documentação de API.
 
 ## Convenções
 
-JSON UTF-8, datas ISO 8601, instantes com offset e saída UTC. Valores monetários são strings decimais com exatamente duas casas. Autenticação bearer obrigatória e autorização por permissões técnicas conforme o [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md). Base de escopo: comerciante único, BRL, calendário e limites dos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md).
+JSON UTF-8, datas ISO 8601, instantes com offset na entrada de lançamentos e instantes UTC nas respostas. Valores monetários são strings decimais com exatamente duas casas. As rotas de negócio exigem bearer token e autorização por permissões técnicas conforme o [ADR-011](../06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md). Base de escopo: comerciante único, BRL, calendário e limites dos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md).
 
-`X-Correlation-Id` UUID opcional, gerado se ausente/inválido; retornado em todas as respostas. `traceparent` validado e propagado quando válido. Nunca confiar em correlação para autenticar. `Cache-Control: no-store` em respostas financeiras.
+`X-Correlation-Id` UUID é opcional, gerado novamente se ausente ou inválido e retornado nas respostas. A instrumentação OpenTelemetry/ASP.NET Core trata o contexto distribuído W3C; `X-Correlation-Id` não participa da autenticação. `Cache-Control: no-store` é aplicado às respostas das APIs locais.
 
 ## Criar lançamento
 
@@ -55,10 +55,16 @@ Resposta 201 e `Location: /transactions/{id}`: id, type, amount, occurredAt UTC,
 
 Sem linha de projeção: 200, valores e contagem zero, lastUpdatedAt null, mesmas indicações de consistência/completude. Significa **nenhum movimento refletido nessa projeção**, nunca prova ausência de lançamentos. Banco de leitura indisponível retorna 503, nunca zero fictício. Durante reconstrução, servir geração antiga até troca atômica, com estado REBUILDING.
 
-`GET /consolidations?from=&to=&pageSize=&cursor=`: intervalo inclusivo, paginação por data, uma linha por dia inclusive zeros; generationId e estado no envelope. Cursor inclui geração; se ela mudou, retornar 409 `projection-generation-changed` e orientar reinício da paginação. Não prometer snapshot estável de valores entre páginas durante consumo normal.
+`GET /consolidations?from=&to=&pageSize=&cursor=`: intervalo inclusivo, paginação por data, uma linha por dia inclusive zeros; generationId e estado no envelope. Cursor inclui geração; se ela mudou, retorna 409 `projection-generation-changed` e orienta reinício da paginação. Não há promessa de snapshot estável dos valores entre páginas durante consumo normal.
 
 ## Erros e proteção
 
-`application/problem+json` com type, title, status, detail sanitizado e correlationId. Códigos: 400 validação; 401 token inválido/ausente; 403 permissão insuficiente; 404 lançamento inexistente; 409 conflito de idempotência/geração; 413 corpo excedido; 429 limite de taxa; 503 dependência local indisponível; 500 erro inesperado. Retentativas reutilizam a chave original e aplicam backoff. 429 inclui Retry-After.
+Erros produzidos explicitamente pelas APIs usam Problem Details (`application/problem+json`) com status, título/detalhe sanitizado e, quando processados pelo middleware de Problem Details, `correlationId`. Os códigos implementados pelas rotas e handlers incluem: 400 validação; 401 token inválido/ausente; 403 permissão insuficiente; 404 lançamento inexistente; 409 conflito de idempotência/geração; 413 corpo de Transactions excedido; 503 persistência indisponível; 500 erro inesperado.
 
-A API de Lançamentos não consulta Consolidação, broker ou IdP remoto a cada chamada: valida JWT e usa JWKS em cache. Chave de assinatura desconhecida exige atualização controlada; falha sem chave confiável nega acesso, nunca ignora validação. Health/readiness ficam fora das rotas públicas e não expõem informações sensíveis.
+**Rate limiting HTTP/429 não está implementado nesta entrega local.** Proteção de borda/rate limiting pertence à arquitetura de produção e não deve ser inferida do contrato local.
+
+As APIs validam JWT usando o middleware JwtBearer e configuração de Authority/JWKS; não fazem chamada síncrona à Consolidação ou ao broker para atender uma requisição de Transactions. Falha de validação de token nega acesso. `/health/live`, `/health/ready` e `/metrics` são endpoints operacionais expostos no host local para demonstração; em produção devem ficar em superfície administrativa/privada e não ser tratados como endpoints públicos de negócio.
+
+## Estado de validação
+
+Os contratos acima descrevem o comportamento implementado. A existência de uma regra neste documento não significa que cada combinação tenha sido exercitada operacionalmente. Testes automatizados e ensaios executados estão registrados separadamente em [validação local final](../08-testes/validacao-local-final.md) e [rastreabilidade da entrega](../08-testes/production-grade-local-traceability.md).

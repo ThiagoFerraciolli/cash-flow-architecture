@@ -1,60 +1,88 @@
 # Arquitetura de Fluxo de Caixa
 
-Este repositório apresenta a arquitetura e a implementação local de uma solução de controle de lançamentos financeiros e consolidação diária, com foco em independência entre capacidades, consistência, resiliência e rastreabilidade entre requisitos, decisões, código e testes.
+Solução para controle de lançamentos financeiros e consolidação diária, construída para demonstrar independência entre capacidades, consistência, resiliência e rastreabilidade entre requisitos, decisões, código e testes.
 
 ## Solução
 
-Dois serviços de negócio, Lançamentos e Consolidação, com quatro processos: duas APIs e dois Workers. PostgreSQL por contexto, Outbox transacional, entrega pelo menos uma vez e consumidor idempotente. O lançamento confirma após commit local, independentemente da Consolidação e do broker.
+Dois serviços de negócio — **Lançamentos** e **Consolidação** — executados em quatro processos: Transactions API, Transactions Worker/Outbox Publisher, Consolidation API e Consolidation Worker. Cada contexto possui seu PostgreSQL. A integração é assíncrona, com Transactional Outbox, entrega at-least-once e consumidor idempotente. O lançamento é confirmado após commit no banco de Transactions e não depende da disponibilidade da Consolidação nem do broker.
 
 ```mermaid
 flowchart LR
-    U[Consumidor autenticado] --> TA[API de Lançamentos]
-    U --> CA[API de Consolidação]
-    TA --> TDB[(Banco de Lançamentos)]
-    TW[Publicador da Outbox] --> TDB
-    TW --> Q[Broker: RabbitMQ local / SQS na AWS]
-    Q --> CW[Processador da Consolidação]
-    CW --> CDB[(Banco de Consolidação)]
+    U[Consumidor autenticado] --> TA[Transactions API]
+    U --> CA[Consolidation API]
+    TA --> TDB[(Transactions DB)]
+    TW[Outbox Publisher] --> TDB
+    TW --> Q[RabbitMQ local]
+    Q --> CW[Consolidation Worker]
+    CW --> CDB[(Consolidation DB)]
     CA --> CDB
-    Q -. falhas persistentes .-> D[Fila de mensagens problemáticas]
+    Q -. falha permanente .-> D[DLQ]
 ```
 
-## Estado da implementação
+## O que está implementado
 
-A entrega local implementa Transactions API, Transactions Worker / Outbox Publisher, Consolidation Worker e Consolidation API como processos independentes, com PostgreSQL separado por bounded context e RabbitMQ local. O fluxo usa Transactional Outbox, consumo at-least-once e idempotência para evitar efeito financeiro duplicado. Transactions confirma no seu próprio banco: a indisponibilidade de Consolidation não bloqueia novos lançamentos. As APIs validam JWT do Keycloak local com permissões por cliente e expõem health/readiness. Os quatro processos usam OpenTelemetry, logs estruturados, métricas em `/metrics` e traces exportados para o Jaeger local. Um [Recovery administrativo](docs/07-infraestrutura/recuperacao-e-reconciliacao.md) recompõe a projeção em nova geração, verifica o resultado e troca a geração ativa sob lease PostgreSQL renovável e com expiração. O [escopo de implementação](docs/01-requisitos/escopo-implementacao.md) distingue a entrega local das evoluções projetadas.
+O corte local executável usa Docker Compose, dois PostgreSQL, RabbitMQ, Keycloak e Jaeger. As APIs validam JWT e permissões por cliente. Os quatro processos emitem logs estruturados, métricas e traces OpenTelemetry. O Transactions Publisher implementa publisher confirms e circuit breaker; o Consolidation Worker faz ACK após commit, retry/DLQ e processamento idempotente. Um [Recovery administrativo](docs/07-infraestrutura/recuperacao-e-reconciliacao.md) recompõe a projeção em nova geração sob lease/fencing PostgreSQL.
 
-As [evidências locais](docs/08-testes/validacao-local-final.md) registram E2E, T06, T09, T10, T13, T14, T15 e T18 nos limites efetivamente executados. No T06, Transactions permaneceu live/ready e aceitou dois POSTs HTTP 201 com todo o contexto Consolidation parado. No T15, foram 6.000/6.000 requisições a 50 req/s, sem falhas ou iterações perdidas, P95 4,372 ms e P99 6,052 ms. A suíte completa anterior ao endurecimento da lease teve **84 passed, 0 failed, 0 skipped**; após as mudanças de lease/fencing e o bootstrap limpo, a regressão final foi repetida pelo usuário com restore bloqueado, build sem restore e testes sem rebuild: **89 passed, 0 failed, 0 skipped**. Esses resultados são evidência local, não GitHub CI. A [rastreabilidade](docs/08-testes/production-grade-local-traceability.md) separa estratégia normativa, testes automatizados e ensaios operacionais.
+RabbitMQ é o único transporte implementado. **SQS Standard é a escolha da arquitetura-alvo AWS, mas o adaptador SQS não foi implementado nem homologado.** O [ADR-007](docs/06-adr/adr-007-estrategia-de-mensageria.md) registra a escolha e o [ADR-010](docs/06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md) descreve as diferenças semânticas.
 
-## Execução local
+## Comece aqui: executar e validar
 
-O ambiente executável usa Docker Compose com quatro processos de aplicação, dois PostgreSQL, RabbitMQ, Keycloak e Jaeger; `migrate` e `migrate-consolidation` são jobs transitórios. Na raiz, configure os segredos em `.env` local ignorado pelo Git e execute `docker compose up -d --build` e `docker compose ps`. O [guia local](docs/07-infraestrutura/execucao-local.md) detalha configuração, portas, token, E2E e testes operacionais. HTTP e AMQP sem TLS são exceções de desenvolvimento local. Não exige conta AWS.
+Pré-requisitos: Docker com Compose v2, SDK .NET 10, `curl` e acesso à internet no primeiro build.
 
-RabbitMQ é a implementação de mensageria do ambiente local, não um emulador do SQS. O [ADR-010](docs/06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md) registra as diferenças. A validação real do adaptador SQS pertence à homologação AWS e não é requisito para executar a entrega local.
+Em um clone novo, a validação local completa é executada com **um único comando**:
 
-## Caminho para AWS
+```sh
+sh tools/validate-local.sh
+```
 
-A arquitetura distribuída completa está implementada e validada localmente com Docker Compose, PostgreSQL e RabbitMQ. A [arquitetura de produção projetada para AWS](docs/07-infraestrutura/arquitetura-aws.md) usa serviços gerenciados como ECS/Fargate, RDS e SQS, além de DLQ, ALB, Cognito, IAM, KMS e observabilidade. Nenhuma infraestrutura AWS foi provisionada como parte deste estudo de caso, e a AWS não foi testada. O [plano de implantação](docs/07-infraestrutura/implantacao-e-operacao.md) documenta os passos futuros de provisionamento, promoção, reversão, restauração e liberação.
+Não é necessário criar o `.env` manualmente. O script carrega `.env.example` como baseline e, quando `.env` não existe, cria automaticamente uma cópia local antes de subir o ambiente. Se `.env` já existir, ele é tratado como override local. O `.env.example` contém somente credenciais demonstrativas para o ambiente local; não reutilize esses valores em ambiente compartilhado ou produção.
 
-## Trilhas de leitura
+O script:
 
-Para avaliação de **Arquitetura de Soluções**: conformidade e requisitos → ASRs e capacidades → DAS → C4 e visões → ADRs → arquitetura AWS, custos, implantação e recuperação → testes e rastreabilidade.
+1. carrega a configuração local e cria `.env` automaticamente quando necessário;
+2. deriva as connection strings e a URI RabbitMQ usadas pelos testes a partir das mesmas credenciais do Compose;
+3. sobe toda a topologia com `docker compose up -d --build --wait`;
+4. valida readiness das APIs;
+5. executa `dotnet restore --locked-mode` e `dotnet build --no-restore`;
+6. executa unit, contract, integration e E2E com `dotnet test --no-build`.
 
-Para avaliação de **Arquitetura de Software**: conformidade e requisitos → SDD e componentes → contratos HTTP, dados e fluxos → ADRs 003–005 e 008–011 → parâmetros, execução local e recuperação → testes e rastreabilidade.
+Se qualquer etapa falhar, o script encerra com código diferente de zero.
 
-Ordem completa:
+Para somente subir a aplicação, sem executar o gate completo de validação:
 
-1. [Conformidade com os PDFs](docs/01-requisitos/matriz-conformidade.md).
-2. [Requisitos funcionais](docs/01-requisitos/requisitos-funcionais.md), [não funcionais](docs/01-requisitos/requisitos-nao-funcionais.md), [premissas](docs/01-requisitos/premissas.md), [restrições](docs/01-requisitos/restricoes.md) e [escopo de implementação](docs/01-requisitos/escopo-implementacao.md).
-3. [Requisitos arquiteturalmente significativos](docs/02-asr/asr.md) e [capacidades e domínios](docs/03-arquitetura-solucao/capacidades-e-dominios.md).
-4. [Documento de arquitetura da solução](docs/03-arquitetura-solucao/das.md).
-5. [C4](docs/04-visoes/c4.md), [dados](docs/04-visoes/visao-dados.md), [integração](docs/04-visoes/visao-integracao.md), [fluxos](docs/04-visoes/visoes-dinamicas.md) e [segurança e observabilidade](docs/04-visoes/seguranca-resiliencia-observabilidade.md).
-6. [Design de software](docs/05-arquitetura-software/sdd.md), [componentes](docs/05-arquitetura-software/c4-componentes.md) e [contratos HTTP](docs/05-arquitetura-software/contratos-http.md).
-7. ADRs em [docs/06-adr](docs/06-adr): fonte normativa das decisões e dos trade-offs, incluindo [identidade e autorização](docs/06-adr/adr-011-autenticacao-e-autorizacao-das-apis.md).
-8. [Parâmetros operacionais](docs/07-infraestrutura/parametros-operacionais.md), [recuperação](docs/07-infraestrutura/recuperacao-e-reconciliacao.md), [custos](docs/07-infraestrutura/estimativa-custos.md) e guias local/AWS.
-9. [Estratégia de testes](docs/05-arquitetura-software/estrategia-testes.md) e [rastreabilidade](docs/01-requisitos/matriz-rastreabilidade.md).
+```sh
+cp .env.example .env
+docker compose up -d --build --wait
+docker compose ps
+```
 
-## Fontes normativas e evolução
+Transactions API: `127.0.0.1:8081`; Consolidation API: `127.0.0.1:8082`; Keycloak: `127.0.0.1:8080`; Jaeger: `127.0.0.1:16686`.
 
-Cada regra possui uma fonte principal: contratos HTTP no documento de contratos; evento no ADR-008; idempotência no ADR-005; mensageria no ADR-010; identidade e autorização no ADR-011; recuperação no procedimento operacional; valores e metas na tabela de parâmetros. As demais visões explicam responsabilidades e referenciam essas fontes.
+O [guia de execução local](docs/07-infraestrutura/execucao-local.md) contém obtenção de token, chamadas HTTP, testes e ensaios operacionais. HTTP/AMQP sem TLS e a dependência de startup do Jaeger são conveniências do ambiente demonstrativo, não decisões de disponibilidade para produção.
 
-A documentação também define a arquitetura-alvo. As evidências locais correspondem aos testes executáveis registrados; recursos de produção projetados dependem de implementação e homologação futuras. Mudanças posteriores exigem atualização da decisão, dos contratos e dos testes associados.
+## Evidência executada
+
+As [evidências locais finais](docs/08-testes/validacao-local-final.md) registram os limites de cada ensaio:
+
+- E2E autenticado: CREDIT 100 + DEBIT 20 → créditos 100, débitos 20, saldo 80, contagem 2.
+- T06: com Consolidation API, Worker e banco parados, Transactions permaneceu live/ready e aceitou dois POSTs 201; após restauração, a projeção convergiu.
+- T09: mensagem permanentemente inválida chegou à DLQ; redrive completo não foi executado.
+- T13: 401 sem token, 403 sem permissão, 201 em escrita autorizada e 200 em leitura autorizada.
+- T14: trace atravessou API → Outbox → Worker → RabbitMQ → Worker → banco de Consolidação no Jaeger local.
+- T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0 dropped iterations, P95 4,372 ms e P99 6,052 ms.
+- T18: bootstrap local limpo com migrations, serviços saudáveis, token e primeiro POST 201.
+- Regressão local da revisão atual pelo golden path `tools/validate-local.sh`: `restore` PASS, `build` PASS e **90 passed, 0 failed, 0 skipped** (13 Transactions Unit + 1 Consolidation Unit + 1 Contract + 18 Transactions Integration + 55 Consolidation Integration + 2 E2E).
+
+Esses resultados são evidência **local**, não GitHub CI e não validação AWS. A [rastreabilidade de testes](docs/08-testes/production-grade-local-traceability.md) distingue estratégia normativa, cobertura automatizada e ensaios operacionais limitados.
+
+## Arquitetura-alvo AWS
+
+O corte distribuído local está implementado com os componentes acima. A [arquitetura-alvo AWS](docs/07-infraestrutura/arquitetura-aws.md) projeta ECS/Fargate, RDS, SQS Standard, ALB, Cognito, IAM, KMS e observabilidade gerenciada. Nenhuma infraestrutura AWS foi provisionada ou testada neste estudo. A adoção exige implementação do adaptador SQS, infraestrutura, configuração de identidade e homologação AWS.
+
+## Guia de avaliação
+
+Para **Arquitetura de Soluções**: [conformidade](docs/01-requisitos/matriz-conformidade.md) → [requisitos](docs/01-requisitos/requisitos-funcionais.md) e [RNFs](docs/01-requisitos/requisitos-nao-funcionais.md) → [ASRs](docs/02-asr/asr.md) → [capacidades](docs/03-arquitetura-solucao/capacidades-e-dominios.md) → [DAS](docs/03-arquitetura-solucao/das.md) → [C4 e visões](docs/04-visoes/c4.md) → [ADRs](docs/06-adr) → [AWS](docs/07-infraestrutura/arquitetura-aws.md), [custos](docs/07-infraestrutura/estimativa-custos.md) e [evidências](docs/08-testes/validacao-local-final.md).
+
+Para **Arquitetura de Software**: [SDD](docs/05-arquitetura-software/sdd.md) → [componentes](docs/05-arquitetura-software/c4-componentes.md) → [contratos HTTP](docs/05-arquitetura-software/contratos-http.md) → [dados](docs/04-visoes/visao-dados.md) e [fluxos](docs/04-visoes/visoes-dinamicas.md) → ADRs 003–005 e 008–011 → [estratégia de testes](docs/05-arquitetura-software/estrategia-testes.md) → [evidências finais](docs/08-testes/validacao-local-final.md).
+
+O [escopo de implementação](docs/01-requisitos/escopo-implementacao.md) é a referência para distinguir **implementado**, **demonstrado localmente**, **arquitetura-alvo** e **evolução**.

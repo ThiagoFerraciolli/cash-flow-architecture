@@ -20,8 +20,8 @@ public sealed class TransactionApiAvailabilityTests
         Assert.Equal(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
 
         using var post = await SendPost(client);
-        using var byId = await client.GetAsync($"/transactions/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
-        using var list = await client.GetAsync("/transactions?from=2026-10-21&to=2026-10-21", TestContext.Current.CancellationToken);
+        using var byId = await SendGet(client, $"/transactions/{Guid.NewGuid()}");
+        using var list = await SendGet(client, "/transactions?from=2026-10-21&to=2026-10-21");
         foreach (var response in new[] { post, byId, list })
         {
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
@@ -31,6 +31,21 @@ public sealed class TransactionApiAvailabilityTests
             using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
             Assert.Equal(503, problem.RootElement.GetProperty("status").GetInt32());
         }
+    }
+
+    [Fact]
+    public async Task Transaction_reads_require_authentication_and_read_permission()
+    {
+        using var factory = ApiTestHost.CreateFactory("Host=127.0.0.1;Port=1;Database=cashflow;Username=cashflow;Password=unused;Timeout=1;Command Timeout=1");
+        using var client = factory.CreateClient();
+
+        using var anonymous = await client.GetAsync($"/transactions/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+
+        using var writeOnlyRequest = new HttpRequestMessage(HttpMethod.Get, $"/transactions/{Guid.NewGuid()}");
+        writeOnlyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiTestHost.Token(canWrite: true, canRead: false));
+        using var writeOnly = await client.SendAsync(writeOnlyRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, writeOnly.StatusCode);
     }
 
     [Fact]
@@ -64,9 +79,9 @@ public sealed class TransactionApiAvailabilityTests
             Assert.Equal(HttpStatusCode.Created, post.StatusCode);
             using var created = JsonDocument.Parse(await post.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
             var id = created.RootElement.GetProperty("id").GetGuid();
-            using var byId = await client.GetAsync($"/transactions/{id}", TestContext.Current.CancellationToken);
+            using var byId = await SendGet(client, $"/transactions/{id}");
             Assert.Equal(HttpStatusCode.OK, byId.StatusCode);
-            using var list = await client.GetAsync("/transactions?from=2026-10-21&to=2026-10-21", TestContext.Current.CancellationToken);
+            using var list = await SendGet(client, "/transactions?from=2026-10-21&to=2026-10-21");
             Assert.Equal(HttpStatusCode.OK, list.StatusCode);
             using var items = JsonDocument.Parse(await list.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
             Assert.Equal(id, items.RootElement.GetProperty("items")[0].GetProperty("id").GetGuid());
@@ -87,6 +102,13 @@ public sealed class TransactionApiAvailabilityTests
         request.Content = new StringContent("""
             {"type":"CREDIT","amount":"100.00","occurredAt":"2026-10-21T12:00:00-03:00","description":"availability test"}
             """, Encoding.UTF8, "application/json");
+        return await client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<HttpResponseMessage> SendGet(HttpClient client, string uri)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiTestHost.Token());
         return await client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 }

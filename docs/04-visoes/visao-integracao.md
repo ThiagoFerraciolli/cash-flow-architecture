@@ -4,7 +4,7 @@ Contrato HTTP em [contratos-http](../05-arquitetura-software/contratos-http.md);
 
 ## Fronteiras
 
-Cliente→API: HTTPS/JSON na AWS, bearer token validado na API. API→banco: transação local. Publicador→broker: AMQP com confirmação no local ou HTTPS/SigV4 SQS na AWS. Consumidor→banco: identidade financeira e projeção no mesmo commit. Ferramenta operacional→bancos: acesso excepcional autenticado para snapshot e recuperação.
+Cliente→API: HTTP no ambiente local e HTTPS na arquitetura AWS, bearer token validado na API. API→banco: transação local. Publicador→broker: **AMQP/RabbitMQ implementado localmente**; **HTTPS/SigV4/SQS pertence à arquitetura-alvo AWS**. Consumidor→banco: identidade financeira e projeção no mesmo commit. Ferramenta Recovery→bancos: acesso administrativo excepcional para snapshot e reconstrução.
 
 ```mermaid
 sequenceDiagram
@@ -12,7 +12,7 @@ sequenceDiagram
     participant A as API de Lancamentos
     participant T as Banco de Lancamentos
     participant P as Publicador
-    participant Q as Broker
+    participant Q as RabbitMQ local
     participant W as Consumidor
     participant C as Banco de Consolidacao
     U->>A: POST + token + chave
@@ -20,17 +20,19 @@ sequenceDiagram
     A-->>U: 201
     P->>T: Reservar lote e confirmar transacao curta
     P->>Q: Publicar evento v1
-    Q-->>P: Confirmacao de publicacao
+    Q-->>P: Publisher confirm
     P->>T: Marcar publicado se token da reserva corresponde
     Q->>W: Entrega possivelmente repetida
     W->>C: Controle, identidade e UPSERT no mesmo commit
-    W->>Q: Ack RabbitMQ ou DeleteMessage SQS
+    W->>Q: ACK somente apos commit
 ```
+
+O diagrama representa o fluxo **executável local**. Na AWS, RabbitMQ será substituído pelo adaptador SQS especificado no ADR-010; esse adaptador não existe no código entregue.
 
 ## Garantias e limites
 
-Entrega pelo menos uma vez, sem dependência de ordenação. O consumidor reconhece a identidade financeira mesmo se evento for reemitido em outra versão. Perda da confirmação pode gerar duplicata; hash divergente é incidente. Contexto de trace via metadados não altera o fato.
+O fluxo local trabalha com entrega pelo menos uma vez e não depende de ordenação. O consumidor usa identidade financeira durável por geração e absorve redelivery quando o fato é idêntico; identidade com hash divergente é conflito/incidente. Contexto de trace via metadados não altera a identidade financeira.
 
-Retentativas e DLQ não são equivalentes entre produtos. RabbitMQ usa repasse confirmado para filas de espera; SQS usa visibilidade e redrive policy. A homologação usa SQS real; testes locais não demonstram IAM, KMS ou retenção gerenciada.
+Retentativas e DLQ não são equivalentes entre produtos. RabbitMQ local usa filas de espera/TTL e DLQ conforme a implementação do consumer. SQS deverá usar visibility timeout, `DeleteMessage` após commit e redrive policy, mas essas propriedades são requisitos futuros e **não foram homologadas em AWS**. Os testes locais não demonstram IAM, KMS, retenção gerenciada ou comportamento real do SQS.
 
-A publicação confirmada não comprova efeito na projeção. Expiração do transporte requer reconciliação/rebuild pela fonte. Valores de timeout, retenção e rate de redrive têm uma única fonte nos parâmetros operacionais. Kafka é alternativa analisada no ADR-007, sem componente adicional nesta arquitetura.
+A publicação confirmada não comprova efeito na projeção. Perda ou expiração do transporte não pode ser a única estratégia de recuperação: os fatos persistidos em Transactions são a fonte para rebuild. Valores operacionais têm sua fonte em [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). Kafka é alternativa analisada e rejeitada para este corte no ADR-007, sem componente Kafka na solução.

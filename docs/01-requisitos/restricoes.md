@@ -2,20 +2,33 @@
 
 ## Origem nos PDFs
 
-Ambos pedem controle de lançamentos, consolidado diário, independência entre capacidades, 50 req/s e perda máxima de 5%. A entrega final deve incluir desenho, testes, README com funcionamento e execução local, repositório público e documentação versionada. Software exige C#; Soluções permite linguagem dominada e exige capacidades/domínios, refinamento e justificativas. A permissão para representar aspectos arquiteturais sem codificá-los não elimina os obrigatórios de aplicação e testes.
+Ambos os desafios pedem controle de lançamentos, consolidado diário, independência entre capacidades, pico de 50 req/s e perda máxima de 5% para o Consolidado. A entrega deve incluir desenho, testes, README com funcionamento/execução local, repositório público e documentação versionada. O desafio de Software exige C#; o de Soluções exige ainda capacidades/domínios, refinamento de requisitos e justificativas arquiteturais. Nem toda premissa arquitetural precisa ser codificada, mas implementação e testes permanecem itens obrigatórios.
 
-Diferenciais de Soluções: custos/licenças, observabilidade, segurança de integração e transição se houver legado. Não há legado conhecido; transição de legado é não aplicável.
+Diferenciais do desafio de Soluções incluem custos/licenças, observabilidade, segurança de integração e Arquitetura de Transição **se necessária, considerando migração de legado**. O case não fornece um legado real. Para demonstrar a competência solicitada sem inventar uma situação existente, a entrega inclui uma [arquitetura de transição hipotética](../03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) com premissas explicitamente hipotéticas. Ela é independente da implantação local→AWS.
 
 ## Estado da entrega
 
-A documentação arquitetural está concluída para o escopo definido e a implementação ocorre incrementalmente. Exemplos em Markdown são contratos ou especificações e não constituem evidência executável por si só. O corte entre implementação, homologação e evolução está em [escopo-implementacao.md](escopo-implementacao.md).
+A entrega possui um corte local implementado e executável com C#/.NET, PostgreSQL, RabbitMQ, Keycloak e Jaeger, além da ferramenta administrativa de Recovery. O golden path final registrado em 23/10/2026 possui **90 testes aprovados, 0 falhas e 0 skips**, com build **0 warnings / 0 errors**. Ensaios operacionais executados e seus limites estão em [docs/08-testes](../08-testes/validacao-local-final.md).
 
-Estados são separados: DOCUMENTADO, IMPLEMENTADO e DEMONSTRADO. Não marcar desempenho, disponibilidade ou execução local como demonstrados apenas pela existência do desenho. Repositório público foi confirmado em 22/10/2026 via metadados GitHub.
+A arquitetura de produção AWS está documentada, mas não foi provisionada nem homologada nesta entrega. SQS, Cognito, ECS/Fargate, RDS Multi-AZ, IAM/KMS/WAF e demais componentes AWS são **arquitetura-alvo**, não evidência executada. Não existe adaptador SQS no código atual.
 
-## Restrições técnicas aprovadas
+Exemplos em Markdown são contratos/especificações e não constituem evidência executável por si só. O corte entre implementação, demonstração e evolução está em [escopo-implementacao.md](escopo-implementacao.md).
 
-C#/.NET; PostgreSQL por contexto; RabbitMQ local; SQS AWS; dois serviços/quatro processos; domínio sem dependência de SDK; idempotência e recuperação transacionais; identidade e segurança conforme o escopo de implementação; dados sintéticos na demonstração. Configurações e segredos externos. Valores e metas de referência são escolhas da arquitetura, não requisitos inventados do cliente.
+## Classificação usada na documentação
+
+- **IMPLEMENTADO:** existe no código/configuração entregue.
+- **DEMONSTRADO:** existe evidência de execução no ambiente declarado.
+- **ARQUITETURA-ALVO:** decisão de produção projetada, ainda não implementada/homologada nesta entrega.
+- **EVOLUÇÃO:** melhoria possível ou condição para adoção futura.
+
+Nenhuma afirmação de desempenho, disponibilidade, segurança cloud ou recuperação produtiva deve ser inferida apenas do desenho. O repositório é público; isso atende ao requisito de publicação, mas não substitui validação técnica.
+
+## Restrições técnicas adotadas
+
+C#/.NET; PostgreSQL por contexto; RabbitMQ no ambiente local; SQS Standard como alvo AWS; dois serviços de negócio e quatro processos permanentes; domínio sem dependência direta de SDK de broker; idempotência e recuperação transacionais; configuração e segredos externos; dados sintéticos na demonstração. Valores adicionais de latência, RTO/RPO, retenção e disponibilidade são escolhas/metas arquiteturais, não requisitos inventados do cliente.
+
+OpenAPI/Swagger não é parte da implementação entregue e não é requisito obrigatório dos PDFs. A ausência desse artefato não deve ser mascarada como trabalho concluído; pode ser evolução futura se houver necessidade de publicação formal do contrato.
 
 ## Gestão de mudança
 
-Mudança de escopo deve atualizar requisito, ADR, contrato e teste afetado. Decisões da arquitetura-alvo podem permanecer documentadas mesmo quando sua implementação estiver classificada como homologação ou evolução; nesses casos, a documentação deve deixar explícito que não existe evidência executável correspondente.
+Mudança de escopo deve atualizar requisito, ADR, contrato e teste afetado. Decisões da arquitetura-alvo podem permanecer documentadas sem implementação correspondente desde que sua classificação seja explícita e não sejam apresentadas como evidência da entrega local.

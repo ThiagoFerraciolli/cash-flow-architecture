@@ -51,10 +51,11 @@ internal static class ApiTestHost
         }
     }
 
-    public static string Token(string clientId = "client-a", bool canWrite = true, string? issuer = null)
+    public static string Token(string clientId = "client-a", bool canWrite = true, bool canRead = true, string? issuer = null)
     {
         var claims = new List<Claim> { new("client_id", clientId) };
         if (canWrite) claims.Add(new Claim("permissions", "transactions.write"));
+        if (canRead) claims.Add(new Claim("permissions", "transactions.read"));
         var jwt = new JwtSecurityToken(issuer ?? Issuer, Audience, claims,
             DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10),
             new SigningCredentials(new RsaSecurityKey(SigningKey), SecurityAlgorithms.RsaSha256));

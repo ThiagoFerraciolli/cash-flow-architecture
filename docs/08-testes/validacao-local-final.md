@@ -1,44 +1,111 @@
 # Evidências da validação local final
 
-Resultados observados no ambiente **Docker Compose local real**, inicialmente na branch `feat/final-validation` e depois na extensão `feat/production-grade-local`. Este registro documenta execuções locais; não representa resultado do GitHub CI, teste em AWS nem provisionamento de infraestrutura AWS. A [rastreabilidade da extensão](production-grade-local-traceability.md) separa cobertura automatizada e cenários operacionais limitados da estratégia normativa T01–T20.
+Este registro consolida resultados observados no ambiente **Docker Compose local real**. Não representa GitHub CI, execução em AWS nem provisionamento de infraestrutura cloud. A [rastreabilidade da entrega](production-grade-local-traceability.md) separa a estratégia normativa T01–T20 daquilo que foi efetivamente automatizado ou exercitado operacionalmente.
 
 ## E2E completo
 
-- Resultado: **PASS**.
+- Resultado: **PASS local**.
 - Teste: `tests/CashFlow.EndToEndTests/ComposeTransactionFlowTests.cs`.
-- Fluxo exercitado: Keycloak → Transactions API → Outbox → RabbitMQ → Consolidation Worker → Consolidation API.
-- Lançamentos: CREDIT `100.00` e DEBIT `20.00`.
-- Projeção observada: `totalCredits=100.00`, `totalDebits=20.00`, `balance=80.00`, `transactionCount=2`.
+- Fluxo: Keycloak → Transactions API → Outbox → RabbitMQ → Consolidation Worker → Consolidation API.
+- Fatos: CREDIT `100.00` e DEBIT `20.00`.
+- Projeção: créditos `100.00`, débitos `20.00`, saldo `80.00`, contagem `2`.
 
 ## T06 — independência durante indisponibilidade de Consolidation
 
-- Resultado: **PASS**.
-- Serviços parados durante os POSTs: `consolidation-api`, `consolidation-worker`, `postgres-consolidation`.
-- Transactions `/health/live` durante a indisponibilidade: HTTP `200`.
-- Transactions `/health/ready` durante a indisponibilidade: HTTP `200`.
-- CREDIT POST durante a indisponibilidade: HTTP `201`.
-- DEBIT POST durante a indisponibilidade: HTTP `201`.
-- Após a recuperação dos serviços, a projeção convergiu para `totalCredits=100.00`, `totalDebits=20.00`, `balance=80.00`, `transactionCount=2`.
+- Resultado: **PASS local, escopo limitado**.
+- Parados: `consolidation-api`, `consolidation-worker`, `postgres-consolidation`.
+- Transactions live/ready durante a indisponibilidade: HTTP `200`/`200`.
+- Dois POSTs durante a indisponibilidade: CREDIT e DEBIT, ambos HTTP `201`.
+- Após recuperação: projeção `100.00 / 20.00 / 80.00`, contagem `2`.
+- Limite: o cenário normativo mais amplo de 1.000 fatos a 10/s não foi executado.
 
-## T15 — carga de leitura de Consolidation
+## T09 — DLQ
 
-- Resultado: **PASS** no ensaio local bounded; não é benchmark AWS.
-- Ambiente: Docker Compose local, k6 em container.
-- Warm-up separado: `10 s`.
-- Janela medida: `120 s`; endpoint `GET /consolidations/{businessDate}`.
-- Requisições esperadas: `6000`; executadas: `6000`; taxa sustentada: `50 req/s`.
-- Falhas: `0`; failure rate: `0%`; dropped iterations: `0`.
-- Execução inicial da validação local: P50 `3,21 ms`, P95 `4,52 ms`, P99 `5,97 ms`.
+- Resultado: **PASS local, escopo limitado**.
+- Mensagem permanentemente inválida publicada/roteada.
+- DLQ aumentou em uma mensagem e o `message_id` exato foi localizado.
+- Projeção permaneceu inalterada.
+- **Redrive operacional completo não foi executado.**
 
-## Evidências operacionais posteriores
+## T10 — rebuild
 
-- **T09 — PASS, cenário limitado de mensagem permanentemente inválida:** mensagem publicada e roteada; contagem da DLQ aumentou em um; o `message_id` exato foi encontrado na DLQ; projeção de negócio permaneceu inalterada. Redrive completo não foi executado.
-- **T10 — PASS, rebuild local:** migration `002_recovery_lease.sql` aplicada; API e Worker saudáveis; POST CREDIT `100.00` e POST DEBIT `20.00`; nova geração ativada. Na data isolada, créditos `100.00`, débitos `20.00`, saldo `80.00` e contagem `2`. Testes automatizados adicionais cobrem expiração, tomada de posse e fencing da lease; o ensaio operacional não simulou todos os modos de falha.
-- **T13 — PASS, segurança local:** escrita sem token HTTP `401`; `cashflow-reader` tentando escrever HTTP `403`; escrita autorizada de `cashflow-demo` HTTP `201`; leitura de Consolidation por `cashflow-reader` HTTP `200`. Prova client credentials/JWT e permissões locais, não Cognito ou segurança cloud.
-- **T14 — PASS, observabilidade local:** `/metrics` expôs métricas; Jaeger recebeu traces dos quatro processos. Um trace de transação atravessou Transactions API → PostgreSQL/Outbox → Transactions Worker → fronteira assíncrona RabbitMQ → Consolidation Worker → PostgreSQL de Consolidação. O GET posterior da Consolidation API é outra requisição HTTP e não integra necessariamente o mesmo trace. Sem servidor Prometheus ou stack de produção.
-- **T15 — PASS, última medição local:** warm-up separado de `10 s` a `10 req/s`; janela medida de `120 s` a `50 req/s`; `6000` esperadas e `6000` executadas; `0` falhas, failure rate `0%`, `0` dropped iterations; P50 `2,964 ms`, P95 `4,372 ms`, P99 `6,052 ms`; metas internas de latência atendidas. A projeção estática antes da carga tinha créditos `100.00`, débitos `20.00`, saldo `80.00` e contagem `2`. Este ensaio local limitado satisfaz o requisito explícito de 50 req/s e falha ≤ 5%; não executou o ensaio normativo de 10 min, 30.000 consultas e 100.000 fatos sintéticos.
-- **T18 — PASS, bootstrap local limpo:** `runtime-data` ausente antes da inicialização; `docker compose up -d --build` construiu as quatro imagens de aplicação. Ambos os PostgreSQL, RabbitMQ, Jaeger, Keycloak, APIs e Workers ficaram saudáveis; `migrate` e `migrate-consolidation` encerraram com código `0`. Liveness/readiness das duas APIs responderam com sucesso, um token client credentials foi obtido e o primeiro POST na base limpa criou CREDIT `100.00` com HTTP `201`. Não é validação AWS nem execução por terceiro independente.
+- Resultado: **PASS local, escopo limitado**.
+- Migration de recovery aplicada; nova geração ativada sob lease/fencing.
+- Data isolada após rebuild: créditos `100.00`, débitos `20.00`, saldo `80.00`, contagem `2`.
+- Testes automatizados cobrem expiração, tomada de posse e fencing.
+- O ensaio operacional não simula todos os crash windows, reconciliação contínua ou restore produtivo.
 
-## Suíte de regressão
+## T13 — segurança local
 
-Após o T15 inicial, a suíte com PostgreSQL e RabbitMQ reais teve **80 passed, 0 failed, 0 skipped**. Antes do endurecimento final da lease, o usuário confirmou **84 passed, 0 failed, 0 skipped**. Após as mudanças de lease/fencing e o bootstrap limpo, a regressão final foi executada novamente pelo usuário: `dotnet restore --locked-mode` **PASS**, `dotnet build --no-restore` **PASS** e `dotnet test --no-build` com **89 passed, 0 failed, 0 skipped**. O resultado é evidência de execução local; não corresponde a GitHub CI.
+- Sem token em escrita: `401`.
+- `cashflow-reader` tentando escrever: `403`.
+- `cashflow-demo` escrevendo: `201`.
+- `cashflow-reader` lendo Consolidation: `200`.
+- Demonstra Keycloak/client credentials/JWT/permissões locais; não demonstra Cognito, IAM ou segurança AWS.
+
+## T14 — observabilidade local
+
+- `/metrics` expôs métricas locais.
+- Jaeger recebeu traces dos quatro processos.
+- Um trace transacional atravessou Transactions API → PostgreSQL/Outbox → Transactions Worker → RabbitMQ → Consolidation Worker → PostgreSQL de Consolidação.
+- O GET posterior da Consolidation API é requisição independente e não integra necessariamente o mesmo trace.
+- Não há servidor Prometheus/Grafana/Collector nem plataforma de observabilidade produtiva no Compose.
+
+## T15 — 50 req/s no Consolidado
+
+- Resultado: **PASS na janela local executada**; não é benchmark AWS.
+- Warm-up separado: `10 s` a `10 req/s`.
+- Janela medida: `120 s` a `50 req/s`.
+- Esperadas/executadas: `6000 / 6000`.
+- Falhas: `0`; failure rate `0%`; dropped iterations `0`.
+- Última medição: P50 `2,964 ms`, P95 `4,372 ms`, P99 `6,052 ms`.
+- Projeção estática usada: créditos `100.00`, débitos `20.00`, saldo `80.00`, contagem `2`.
+
+**Conclusão permitida:** durante 120 segundos no ambiente local medido, o Consolidado sustentou 50 req/s com 0% de falhas e sem dropped iterations. Isso atende o critério explícito dentro dessa janela de ensaio. **Não** prova SLA produtivo, capacidade AWS nem o ensaio normativo de 10 minutos/30.000 consultas/100.000 fatos.
+
+## T18 — bootstrap local limpo
+
+- Resultado: **PASS local, escopo limitado**.
+- `runtime-data` ausente antes da inicialização.
+- `docker compose up -d --build` construiu as quatro imagens de aplicação.
+- PostgreSQLs, RabbitMQ, Jaeger, Keycloak, APIs e Workers ficaram saudáveis.
+- `migrate` e `migrate-consolidation` terminaram com código `0`.
+- Token client credentials obtido e primeiro POST CREDIT `100.00` retornou `201`.
+- Não foi execução por terceiro independente e não valida AWS.
+
+## Regressão final
+
+Em 23/10/2026, a revisão atual foi executada pelo caminho documentado `sh tools/validate-local.sh`. O script construiu as quatro imagens de aplicação, aguardou a topologia Compose ficar saudável, verificou readiness, restaurou dependências, compilou e executou a suíte completa.
+
+```text
+dotnet restore --locked-mode  PASS
+dotnet build --no-restore     PASS (0 warnings / 0 errors)
+dotnet test --no-build        90 passed / 0 failed / 0 skipped
+```
+
+Distribuição observada:
+
+| Projeto de teste | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| Transactions UnitTests | 13 | 0 | 0 |
+| Consolidation UnitTests | 1 | 0 | 0 |
+| ContractTests | 1 | 0 | 0 |
+| Transactions IntegrationTests | 18 | 0 | 0 |
+| Consolidation IntegrationTests | 55 | 0 | 0 |
+| EndToEndTests | 2 | 0 | 0 |
+| **Total** | **90** | **0** | **0** |
+
+Execuções anteriores de 80, 84 e 89 testes pertencem à evolução da implementação. O gate atual da revisão é **90 passed, 0 failed, 0 skipped**, qualificado como execução local e não CI.
+
+## O que não foi demonstrado
+
+- AWS/SQS/Cognito/ECS/RDS Multi-AZ/IAM/KMS/WAF.
+- GitHub CI.
+- T07 operacional completo.
+- Redrive completo da DLQ.
+- T16 backlog de 10.000 eventos.
+- RTO/RPO produtivos.
+- Ensaio T15 normativo de 10 minutos/30.000 consultas/100.000 fatos.
+- Execução independente por terceiro.
+
+Esses limites são intencionais na documentação para que arquitetura-alvo, cobertura automatizada e evidência executada não sejam confundidas.

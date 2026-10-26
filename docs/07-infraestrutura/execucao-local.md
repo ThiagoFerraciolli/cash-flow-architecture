@@ -227,22 +227,58 @@ X-Correlation-Id: 06a9d46b-a899-49ef-b46c-3d8d8efb8f92
 {"id":"92588f23-7a57-47ce-960a-48c5d5566d11", ...}
 ```
 
-O UUID que aparece depois de `/transactions/` no header `Location` é o mesmo valor do campo `id` no JSON. Esse é o identificador do lançamento que acabou de ser criado.
+### Passo 1 — Identificar e copiar o ID da transação
 
-**Antes de entrar no PostgreSQL**, guarde esse UUID em uma variável do terminal. O comando abaixo não cria outra transação; apenas atribui um nome ao ID já retornado pela API:
+No JSON retornado pela API, localize o campo `id`:
+
+```text
+{"id":"92588f23-7a57-47ce-960a-48c5d5566d11", ...}
+```
+
+O mesmo UUID aparece no header `Location`:
+
+```text
+Location: /transactions/92588f23-7a57-47ce-960a-48c5d5566d11
+```
+
+Copie somente o UUID, sem `/transactions/`. Esse valor identifica o lançamento que acabou de ser criado e será utilizado nas próximas consultas ao banco.
+
+### Passo 2 — Salvar o ID em uma variável
+
+**Continue no terminal normal. Ainda não entre no PostgreSQL.**
+
+Atribua o UUID copiado à variável `TRANSACTION_ID`. O comando abaixo não cria outra transação; apenas guarda uma referência ao ID já retornado pela API:
 
 ```sh
 TRANSACTION_ID='92588f23-7a57-47ce-960a-48c5d5566d11'
 ```
 
-Substitua o UUID acima pelo UUID retornado pela sua própria chamada. Em seguida, confirme as duas variáveis que serão usadas como referência durante a inspeção do banco:
+Substitua o UUID do exemplo pelo UUID retornado pela sua própria chamada.
+
+### Passo 3 — Confirmar os dois UUIDs antes de entrar no PostgreSQL
+
+Ainda no terminal normal, execute:
 
 ```sh
 echo "$TRANSACTION_ID"
 echo "$IDEMPOTENCY_KEY"
 ```
 
-Anote ou mantenha visíveis esses dois valores. A partir da próxima etapa você entrará no `psql`; comandos do shell como `echo` não devem ser executados enquanto o prompt estiver `cashflow=#`.
+Você deve ver dois UUIDs. Por exemplo:
+
+```text
+92588f23-7a57-47ce-960a-48c5d5566d11
+d97b5dde-fc2c-413c-aed7-77666b02d195
+```
+
+Eles têm funções diferentes:
+
+- `TRANSACTION_ID` identifica o **lançamento financeiro criado**;
+- `IDEMPOTENCY_KEY` identifica a **requisição idempotente** que criou esse lançamento.
+
+Anote ou mantenha visíveis esses dois valores. Eles serão usados nas consultas das seções 3.2, 3.3 e 3.4.
+
+Somente depois dessa conferência avance para a próxima etapa e entre no PostgreSQL.
 
 ### 3.1 Entrar no PostgreSQL de Transactions
 
@@ -372,7 +408,7 @@ Somente agora saia do `psql`:
 \q
 ```
 
-Depois de `\q`, o prompt volta ao shell (`%` ou `$`). A partir daí, comandos como `echo`, `curl` e `docker compose` voltam a ser executados normalmente.
+Depois de `\q`, o prompt volta ao terminal normal. A partir desse ponto, comandos como `docker compose`, `curl` e `echo` voltam a ser executados no shell.
 
 ---
 
@@ -439,17 +475,19 @@ Liste e inspecione a estrutura existente:
 \dt
 ```
 
-Use `\d <nome-da-tabela>` nas tabelas de projeção/deduplicação identificadas e consulte registros referentes a `2026-10-25` e/ou ao `TRANSACTION_ID`. O objetivo é comprovar que o resultado retornado pela Consolidation API corresponde à projeção persistida e que o evento financeiro foi deduplicado.
+Use `\d <nome-da-tabela>` nas tabelas de projeção/deduplicação identificadas e consulte registros referentes a `2026-10-25` e/ou ao `TRANSACTION_ID`. O objetivo é comprovar que o resultado retornado pela Consolidation API corresponde à projeção persistida e que o evento consumido é tratado de forma idempotente.
 
-Saia com `\q`.
+Saia com:
+
+```sql
+\q
+```
 
 ---
 
-## 5. Validar idempotência da escrita
+## 5. Validar idempotência
 
-### 5.1 Mesmo cliente + mesma chave + mesmo comando
-
-Repita **exatamente** o POST original usando o mesmo `IDEMPOTENCY_KEY`:
+Use exatamente a mesma `IDEMPOTENCY_KEY` e exatamente o mesmo payload da seção 3:
 
 ```sh
 curl --include \
@@ -469,14 +507,12 @@ Resultado esperado:
 
 - `HTTP/1.1 201 Created`;
 - header `Idempotent-Replayed: true`;
-- mesmo `id` da primeira resposta;
+- mesmo `id` retornado anteriormente;
 - nenhum segundo efeito financeiro.
 
-Confirme no banco de Transactions que continua existindo somente um fato para o `TRANSACTION_ID` e somente um registro idempotente para a chave.
+Consulte novamente a consolidação e/ou `financial_transactions` para confirmar que o replay não duplicou o lançamento.
 
-### 5.2 Mesma chave + comando diferente
-
-Mantenha o mesmo `IDEMPOTENCY_KEY`, mas altere o valor:
+Agora mantenha a mesma chave e altere o comando, por exemplo o valor:
 
 ```sh
 curl --include \
@@ -492,219 +528,211 @@ curl --include \
   }'
 ```
 
-Resultado esperado: `HTTP/1.1 409 Conflict`. O lançamento original permanece inalterado.
+Resultado esperado: `HTTP/1.1 409 Conflict`. A mesma identidade idempotente não pode representar dois comandos semanticamente diferentes.
 
 ---
 
 ## 6. Validar independência de Transactions
 
-O objetivo é comprovar que indisponibilidade do contexto de Consolidation não impede a aceitação de novos lançamentos em Transactions.
-
-Pare os componentes de Consolidation:
+Pare o contexto de Consolidation:
 
 ```sh
 docker compose stop consolidation-api consolidation-worker postgres-consolidation
 ```
 
-Confirme que Transactions continua saudável:
+Transactions deve continuar saudável:
 
 ```sh
 curl --fail http://127.0.0.1:8081/health/live
 curl --fail http://127.0.0.1:8081/health/ready
 ```
 
-Gere uma nova chave e registre outro lançamento:
+Crie uma nova chave:
 
 ```sh
-INDEPENDENCE_KEY=$(uuidgen | tr '[:upper:]' '[:lower:]')
+OUTAGE_KEY=$(uuidgen | tr '[:upper:]' '[:lower:]')
+```
 
+Registre um débito enquanto Consolidation está indisponível:
+
+```sh
 curl --include \
   http://127.0.0.1:8081/transactions \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Idempotency-Key: $INDEPENDENCE_KEY" \
+  -H "Idempotency-Key: $OUTAGE_KEY" \
   --data '{
-    "type":"CREDIT",
-    "amount":"10.00",
+    "type":"DEBIT",
+    "amount":"25.00",
     "occurredAt":"2026-10-25T13:00:00-03:00",
-    "description":"Teste de independencia"
+    "description":"Teste com Consolidation indisponivel"
   }'
 ```
 
-Resultado esperado: `201 Created` mesmo com Consolidation indisponível.
+Resultado esperado: `201 Created`. O write path de Transactions não depende de uma chamada síncrona a Consolidation.
 
-Restaure os componentes:
+Restaure o contexto:
 
 ```sh
 docker compose start postgres-consolidation consolidation-worker consolidation-api
 ```
 
-Aguarde readiness:
-
-```sh
-until curl --fail --silent http://127.0.0.1:8082/health/ready >/dev/null; do sleep 2; done
-```
-
-Consulte novamente a consolidação e confirme convergência posterior.
+Aguarde os serviços ficarem saudáveis e consulte novamente `2026-10-25`. O débito deve convergir para a projeção após o processamento assíncrono.
 
 ---
 
-## 7. Validar Outbox com broker indisponível
+## 7. Validar indisponibilidade temporária do RabbitMQ
 
-O objetivo é separar o commit financeiro da disponibilidade do transporte.
-
-Pare RabbitMQ:
+Pare o broker:
 
 ```sh
 docker compose stop rabbitmq
 ```
 
-Gere uma chave nova e envie um lançamento:
+Crie uma chave nova:
 
 ```sh
-BROKER_DOWN_KEY=$(uuidgen | tr '[:upper:]' '[:lower:]')
+BROKER_OUTAGE_KEY=$(uuidgen | tr '[:upper:]' '[:lower:]')
+```
 
+Registre outro lançamento:
+
+```sh
 curl --include \
   http://127.0.0.1:8081/transactions \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Idempotency-Key: $BROKER_DOWN_KEY" \
+  -H "Idempotency-Key: $BROKER_OUTAGE_KEY" \
   --data '{
     "type":"CREDIT",
-    "amount":"15.00",
+    "amount":"40.00",
     "occurredAt":"2026-10-25T14:00:00-03:00",
-    "description":"Teste broker indisponivel"
+    "description":"Teste com broker indisponivel"
   }'
 ```
 
-O lançamento deve ser aceito por Transactions se seu banco estiver disponível. Inspecione `financial_transactions` e `outbox_messages`: o fato deve existir e a mensagem deve permanecer pendente/não confirmada enquanto o broker estiver indisponível.
+Resultado esperado: `201 Created`. A indisponibilidade do broker não deve impedir o commit do lançamento, pois a mensagem permanece na Outbox.
 
-Restaure RabbitMQ:
+Enquanto RabbitMQ estiver parado, você pode entrar novamente no PostgreSQL de Transactions e confirmar que o fato e a Outbox foram persistidos. Depois saia do `psql` e restaure o broker:
 
 ```sh
 docker compose start rabbitmq
 ```
 
-Aguarde o broker ficar saudável e acompanhe logs/Outbox até a publicação. Depois confirme que Consolidation converge sem reenviar manualmente o POST.
+Acompanhe o publisher:
 
-Esse ensaio demonstra a função do Transactional Outbox: a gravação do fato não depende de uma publicação síncrona no broker.
+```sh
+docker compose logs --tail=200 transactions-worker
+```
+
+Depois da recuperação do broker, o worker deve conseguir publicar a pendência e a projeção deve convergir.
 
 ---
 
 ## 8. Retry e DLQ
 
-Existe um ensaio operacional reproduzível para mensagem permanentemente inválida:
+O cenário operacional automatizado de mensagem inválida está em:
 
 ```sh
 python3 tests/operational/t09_retry_dlq.py
 ```
 
-O cenário validado é mensagem inválida chegando à DLQ sem alterar a projeção. Esse teste não demonstra redrive operacional completo; não extrapole a evidência para um fluxo de redrive que não foi executado.
-
-Para inspeção manual do RabbitMQ:
+O teste injeta mensagem inválida e comprova o encaminhamento para a DLQ. Depois, inspecione filas e logs:
 
 ```sh
 docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
+docker compose logs --tail=200 consolidation-worker
 ```
 
-Use também a Management UI para observar exchanges, filas e DLQ quando necessário.
+A evidência aqui é **mensagem inválida → DLQ**. Não interprete esse cenário como comprovação de um fluxo completo de redrive/reprocessamento da DLQ se esse fluxo não estiver implementado no executável local.
 
 ---
 
 ## 9. Recovery e rebuild
 
-O ensaio disponível é:
+O utilitário `tools/CashFlow.Recovery` existe para cenários operacionais controlados de recuperação/rebuild da projeção. A validação automatizada correspondente pode ser executada com:
 
 ```sh
 python3 tests/operational/t10_rebuild.py
 ```
 
-`tools/CashFlow.Recovery` lê Transactions em snapshot somente leitura, constrói uma nova geração e a ativa sob lease PostgreSQL renovável com fencing.
-
-Durante a inspeção, valide:
-
-- criação de nova geração;
-- reconstrução a partir da fonte Transactions;
-- ativação da geração reconstruída;
-- lease/fencing impedindo dois donos simultâneos da operação administrativa.
-
-Se o processo Recovery morrer, a lease expira, o Worker retoma e o operador deve iniciar um novo rebuild. Não existe retomada automática do processo administrativo interrompido.
+Esse cenário deve ser tratado como operação explícita, não como comportamento normal de leitura.
 
 ---
 
 ## 10. Observabilidade
 
-Os quatro processos emitem traces OpenTelemetry, logs estruturados e métricas em `/metrics`.
+### 10.1 Logs
 
-### 10.1 Métricas
+```sh
+docker compose logs --tail=200 transactions-api
+docker compose logs --tail=200 transactions-worker
+docker compose logs --tail=200 consolidation-api
+docker compose logs --tail=200 consolidation-worker
+```
 
-Consulte, por exemplo:
+Use `X-Correlation-Id` das respostas HTTP para relacionar requisições aos logs quando aplicável.
+
+### 10.2 Métricas
 
 ```sh
 curl --fail http://127.0.0.1:8081/metrics
 curl --fail http://127.0.0.1:8082/metrics
 ```
 
-### 10.2 Logs
-
-```sh
-docker compose logs --tail=100 transactions-api transactions-worker consolidation-api consolidation-worker
-```
-
-Procure `correlationId`, erros de publicação/consumo e informações que permitam relacionar uma chamada aos processos assíncronos.
-
 ### 10.3 Traces
 
-Abra a Jaeger UI em `127.0.0.1:16686` e procure traces dos serviços após executar os cenários anteriores.
-
-O Compose não inclui Prometheus, Grafana ou OTel Collector. `/metrics` é exposto diretamente apenas para o ambiente local; em produção deve permanecer em superfície administrativa/privada.
+Abra `127.0.0.1:16686` e use a interface do Jaeger para inspecionar traces dos processos instrumentados.
 
 ---
 
 ## 11. Performance
 
-O ensaio disponível é:
+Com a solução saudável, execute:
 
 ```sh
 python3 tests/performance/t15_run.py
 ```
 
-Ele executa warm-up separado de 10 segundos e uma janela medida de 120 segundos a 50 requisições por segundo, com total esperado de 6.000 consultas.
-
-Use esse ensaio para reproduzir a medição local; não interprete o resultado como SLA produtivo ou benchmark de infraestrutura AWS.
+O cenário faz 10 segundos de warm-up e depois 120 segundos a 50 requisições por segundo, totalizando 6.000 consultas medidas. Use o relatório gerado pelo teste como evidência do resultado da execução atual.
 
 ---
 
 ## 12. Regressão automatizada completa
 
-Após concluir a exploração manual, execute o gate automatizado:
+Depois da inspeção manual, rode novamente o golden path:
 
 ```sh
 sh tools/validate-local.sh
 ```
 
-O script carrega `.env.example`, aplica opcionalmente `.env`, deriva `CASHFLOW_TEST_*`, executa `docker compose up -d --build --wait`, verifica readiness e então executa:
-
-```sh
-dotnet restore --locked-mode
-dotnet build --no-restore
-dotnet test --no-build
-```
-
-Não use `postgres/postgres` ou `guest/guest`: esses não são os usuários/credenciais da topologia entregue. Transactions usa usuário `cashflow`; Consolidation usa `consolidation`; RabbitMQ usa `cashflow`.
-
-O golden path final executado em 23/10/2026 registrou **90 passed, 0 failed, 0 skipped**, com build **0 warnings / 0 errors**. Contagens anteriores são apenas histórico de evolução e não representam o gate corrente.
-
-Resultados efetivamente observados estão em [validação local final](../08-testes/validacao-local-final.md). A [estratégia T01–T20](../05-arquitetura-software/estrategia-testes.md) é normativa e contém cenários mais amplos que não foram todos executados.
+O script executa restore/build/test e a suíte operacional. Uma execução histórica em 23/10/2026 registrou 90 testes .NET aprovados, sem falhas, skips, warnings ou errors; para uma nova avaliação, considere sempre o resultado produzido pela execução atual como fonte de verdade.
 
 ---
 
-## 13. Limites do ambiente local
+## 13. O que cada etapa comprova
 
-O ambiente local demonstra comportamento funcional, separação entre Transactions e Consolidation, autenticação/autorização, idempotência, Transactional Outbox, mensageria RabbitMQ, recovery e observabilidade.
+| Evidência | Propriedade arquitetural |
+|---|---|
+| 200 com token válido | autenticação/autorização funcional |
+| 401 sem token | autenticação obrigatória |
+| 403 com `cashflow-reader` em escrita | autorização por escopo |
+| fato + idempotência + Outbox | write path transacional |
+| actor issuer/client persistidos | identidade de máquina auditável |
+| mesma chave + mesmo comando | replay idempotente |
+| mesma chave + comando diferente | conflito idempotente |
+| Transactions grava com Consolidation parado | desacoplamento entre contextos |
+| Transactions grava com RabbitMQ parado | Outbox desacopla commit do broker |
+| convergência após recuperação | consistência eventual |
+| mensagem inválida → DLQ | isolamento de poison message |
+| rebuild controlado | capacidade operacional de recuperação |
+| correlation ID, logs, métricas e traces | observabilidade |
+| teste de carga | evidência quantitativa de leitura local |
 
-Ele **não demonstra** alta disponibilidade de RabbitMQ em cluster, SQS, Cognito, IAM, KMS, WAF, ECS/Fargate, RDS Multi-AZ, Terraform, deployment AWS, RTO/RPO produtivos ou SLA.
+---
 
-RabbitMQ é o único broker implementado nesta entrega. SQS Standard permanece arquitetura-alvo AWS e não possui adaptador nesta implementação.
+## 14. Limites do ambiente local
 
-A arquitetura-alvo está em [arquitetura-aws.md](arquitetura-aws.md), e as diferenças de transporte estão nos [ADR-007](../06-adr/adr-007-estrategia-de-mensageria.md) e [ADR-010](../06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md).
+O ambiente local comprova o comportamento funcional e operacional implementado, mas não simula integralmente a infraestrutura de produção. Em particular, ele não reproduz RabbitMQ em cluster HA, SQS gerenciado, Cognito, IAM, KMS, WAF, ECS/Fargate, RDS Multi-AZ, Terraform, deploy AWS nem objetivos produtivos de RTO/RPO/SLA.
+
+RabbitMQ é o broker implementado no executável local; SQS pertence à arquitetura alvo de produção. Para essa evolução, consulte a visão AWS e os ADRs de mensageria/infraestrutura correspondentes.

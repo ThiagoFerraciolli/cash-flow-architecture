@@ -14,79 +14,63 @@ SQS Standard principal com retenção inicial proposta de 7 dias e DLQ de 14 dia
 
 ```mermaid
 flowchart TB
-    CLIENT["Cliente / HTTPS 443"] --> WAF["AWS WAF - Web ACL"]
-    WAF --> ALB["ALB publico - HTTPS 443 / ACM"]
-    CLIENT -. "OAuth2 / OIDC: obtencao de token" .-> COG["Cognito - emissor JWT"]
+    CLIENT["Cliente HTTPS 443"] --> IGW["Internet Gateway / entrada publica"]
+    CLIENT -. "OAuth2 / OIDC" .-> COG["Amazon Cognito - emissor JWT"]
 
-    subgraph VPC["VPC - regiao AWS / duas zonas de disponibilidade"]
-      direction TB
-      subgraph PUB["Camada publica - internet gateway e subnets publicas"]
-        IGW["Internet Gateway"]
-        subgraph PA["Subnet publica AZ-A"]
-          NATA["NAT Gateway A + Elastic IP"]
-        end
-        subgraph PB["Subnet publica AZ-B"]
-          NATB["NAT Gateway B + Elastic IP"]
-        end
+    subgraph VPC["VPC - duas zonas de disponibilidade"]
+      subgraph PUBLIC["Subnets publicas - AZ-A e AZ-B"]
+        ALB["ALB publico + ACM / WAF associado"]
+        NATA["NAT Gateway AZ-A / Elastic IP"]
+        NATB["NAT Gateway AZ-B / Elastic IP"]
       end
-      subgraph PRIV["Camada privada de aplicacao - sem IP publico"]
-        subgraph AA["Subnet aplicacao AZ-A"]
-          TAA["Transactions API - replica A"]
-          TWA["Outbox Worker - replica A"]
-          CAA["Consolidation API - replica A"]
-          CWA["Consumer Worker - replica A"]
-          RTA["Route table AZ-A - 0.0.0.0/0 via NAT A"]
-        end
-        subgraph AB["Subnet aplicacao AZ-B"]
-          TAB["Transactions API - replica B"]
-          TWB["Outbox Worker - replica B"]
-          CAB["Consolidation API - replica B"]
-          CWB["Consumer Worker - replica B"]
-          RTB["Route table AZ-B - 0.0.0.0/0 via NAT B"]
-        end
+      subgraph PRIVATEA["Subnet privada aplicacao AZ-A"]
+        TAA["Transactions API A"]
+        TWA["Outbox Worker A"]
+        CAA["Consolidation API A"]
+        CWA["Consumer Worker A"]
       end
-      subgraph DBNET["Subnets privadas de dados - DB subnet group multi-AZ"]
-        TDB[("RDS PostgreSQL Transactions - Multi-AZ")]
-        CDB[("RDS PostgreSQL Consolidation - Multi-AZ")]
+      subgraph PRIVATEB["Subnet privada aplicacao AZ-B"]
+        TAB["Transactions API B"]
+        TWB["Outbox Worker B"]
+        CAB["Consolidation API B"]
+        CWB["Consumer Worker B"]
       end
-      S3EP["S3 Gateway VPC Endpoint - rotas S3"]
+      subgraph DATABASE["DB subnet group privado - duas AZs"]
+        TDB[("RDS Transactions - Multi-AZ")]
+        CDB[("RDS Consolidation - Multi-AZ")]
+      end
+      S3EP["S3 Gateway Endpoint"]
     end
 
-    IGW --- ALB
-    ALB -->|"Target group Transactions - porta da API"| TAA
-    ALB -->|"Target group Transactions - porta da API"| TAB
-    ALB -->|"Target group Consolidation - porta da API"| CAA
-    ALB -->|"Target group Consolidation - porta da API"| CAB
-
-    TAA & TAB -->|"PostgreSQL / TLS 5432"| TDB
-    TWA & TWB -->|"PostgreSQL / TLS 5432"| TDB
-    CAA & CAB -->|"PostgreSQL / TLS 5432"| CDB
-    CWA & CWB -->|"PostgreSQL / TLS 5432"| CDB
-
-    TWA & TWB -->|"AWS SDK / HTTPS SigV4"| SQS["SQS Standard - fila principal"]
-    SQS -->|"ReceiveMessage / HTTPS"| CWA & CWB
-    SQS -. "redrive apos maxReceiveCount" .-> DLQ["SQS DLQ"]
+    IGW --> ALB
+    ALB -->|"Target group Transactions / HTTPS"| TAA
+    ALB -->|"Target group Transactions / HTTPS"| TAB
+    ALB -->|"Target group Consolidation / HTTPS"| CAA
+    ALB -->|"Target group Consolidation / HTTPS"| CAB
+    TAA & TAB & TWA & TWB -->|"PostgreSQL / TLS 5432"| TDB
+    CAA & CAB & CWA & CWB -->|"PostgreSQL / TLS 5432"| CDB
+    TWA & TWB -->|"SendMessage HTTPS / SigV4"| SQS["SQS Standard - servico regional"]
+    CWA & CWB -->|"ReceiveMessage HTTPS / SigV4"| SQS
     CWA & CWB -. "DeleteMessage apos commit" .-> SQS
-
-    RTA --> NATA
-    RTB --> NATB
-    NATA --> IGW
-    NATB --> IGW
-    IGW --> EXT["Endpoints publicos AWS / servicos externos"]
-    RTA -. "rota S3 via endpoint" .-> S3EP
-    RTB -. "rota S3 via endpoint" .-> S3EP
-    TAA & TAB & CAA & CAB -. "validacao JWT por JWKS / cache" .-> COG
+    SQS -. "redrive policy" .-> DLQ["SQS DLQ - servico regional"]
+    PRIVATEA -. "rota padrao 0.0.0.0/0" .-> NATA
+    PRIVATEB -. "rota padrao 0.0.0.0/0" .-> NATB
+    NATA & NATB -->|"egress via Internet Gateway"| IGW
+    PRIVATEA -. "rota especifica S3" .-> S3EP
+    PRIVATEB -. "rota especifica S3" .-> S3EP
+    PRIVATEA -. "HTTPS via NAT ou endpoint privado" .-> EXT["Endpoints AWS e externos"]
+    PRIVATEB -. "HTTPS via NAT ou endpoint privado" .-> EXT
 ```
 
 ## Como ler a topologia e suas fronteiras
 
 Este é um **diagrama de implantação-alvo**, não um C4 de componentes e não um ambiente provisionado. As réplicas A/B tornam explícita a distribuição mínima por zona dos quatro ECS Services; cada ECS Service pode escalar acima de duas tasks conforme os limites declarados. Os bancos são desenhados como **instâncias lógicas Multi-AZ**, e não como duas instâncias independentes por AZ: o standby e a localização física do writer são gerenciados pelo RDS. A opção por **dois RDS independentes, um por contexto**, é a decisão de referência atual, sujeita à revisão de custo/isolamento; o diagrama não a apresenta como única solução viável.
 
-**Entrada:** o ALB é internet-facing, associado às duas subnets públicas e protegido por AWS WAF; termina TLS com certificado ACM e distribui chamadas apenas para as APIs por target groups. O Internet Gateway fornece conectividade pública à VPC; **NAT não recebe tráfego HTTP de clientes**. As tasks ECS e os RDS permanecem sem IP público. Os Workers não são targets do ALB. A autenticação do cliente usa tokens emitidos pelo Cognito; as APIs validam JWT/JWKS e autorização, sem afirmar que o ALB substitui a autorização de negócio.
+**Entrada:** o ALB é internet-facing, associado às duas subnets públicas e protegido por AWS WAF; termina TLS com certificado ACM e distribui chamadas apenas para as APIs por target groups. O Internet Gateway fornece conectividade pública à VPC; o WAF é uma Web ACL **associada ao ALB**, e não um roteador intermediário na VPC; **NAT não recebe tráfego HTTP de clientes**. As tasks ECS e os RDS permanecem sem IP público. Os Workers não são targets do ALB. A autenticação do cliente usa tokens emitidos pelo Cognito; as APIs validam JWT/JWKS e autorização, sem afirmar que o ALB substitui a autorização de negócio.
 
-**Saída:** cada subnet privada de aplicação tem rota padrão para o NAT Gateway **da mesma AZ**; cada NAT reside em subnet pública e utiliza o Internet Gateway para alcançar destinos públicos. As linhas de SQS/Cognito representam dependências **lógicas**; o tráfego HTTPS pode usar NAT quando não existir endpoint privado aplicável. O S3 Gateway Endpoint tem rota própria para S3 e não substitui NAT para SQS, Cognito, ECR, CloudWatch ou outros serviços. Interface endpoints são alternativa a avaliar por custo, segurança e volume; não estão desenhados como implantados.
+**Saída:** cada subnet privada de aplicação tem rota padrão para o NAT Gateway **da mesma AZ**; cada NAT reside em subnet pública e utiliza o Internet Gateway para alcançar destinos públicos. As setas pontilhadas de rota indicam **configuração de encaminhamento**, não chamadas diretas entre cada processo e o NAT. O SQS é serviço regional **fora da VPC**, não está instalado dentro das subnets. As linhas de SQS/Cognito representam dependências **lógicas**; o tráfego HTTPS pode usar NAT quando não existir endpoint privado aplicável. O S3 Gateway Endpoint tem rota própria para S3 e não substitui NAT para SQS, Cognito, ECR, CloudWatch ou outros serviços. Interface endpoints são alternativa a avaliar por custo, segurança e volume; não estão desenhados como implantados.
 
-**Dados e mensageria:** somente APIs/Workers autorizados alcançam os respectivos RDS via PostgreSQL/TLS 5432. O publicador usa a API SQS via HTTPS/SigV4, o consumidor recebe por polling e só solicita `DeleteMessage` após commit da projeção; a DLQ recebe mensagens conforme redrive policy. Diferentemente de RabbitMQ local, SQS não envia mensagens por push nem oferece publisher confirms AMQP. O contrato de eventos e a deduplicação permanecem requisitos da aplicação.
+**Dados e mensageria:** somente APIs/Workers autorizados alcançam os respectivos RDS via PostgreSQL/TLS 5432. O publicador usa a API SQS via HTTPS/SigV4, o consumidor busca mensagens por polling e só solicita `DeleteMessage` após commit da projeção; a DLQ recebe mensagens conforme redrive policy. Diferentemente de RabbitMQ local, SQS não envia mensagens por push nem oferece publisher confirms AMQP. O contrato de eventos e a deduplicação permanecem requisitos da aplicação.
 
 **Controles omitidos intencionalmente do desenho de rede:** security groups, NACLs, roles IAM, chaves KMS, CloudWatch/X-Ray, ECR, Secrets Manager e alarmes são descritos nesta página e nas visões de segurança/operação. Para evitar a falsa impressão de que tudo é uma conexão de runtime, esses serviços não foram ligados indiscriminadamente a todas as tasks. A ausência de uma seta de observabilidade não significa ausência do requisito; a [visão de segurança, resiliência e observabilidade](../04-visoes/seguranca-resiliencia-observabilidade.md) documenta os controles.
 
@@ -96,7 +80,7 @@ Este é um **diagrama de implantação-alvo**, não um C4 de componentes e não 
 |---|---|---|---|
 | WAF, ALB e ACM | WAF, ALB e legenda HTTPS/ACM | Proteção e entrada TLS 443; roteamento por target group | AWS alvo |
 | Internet Gateway | IGW | Caminho público da VPC | AWS alvo |
-| NAT Gateway por AZ | NAT A/B, route tables A/B | Egress de subnets privadas por zona; não é ingresso | AWS alvo |
+| NAT Gateway por AZ | NAT A/B e rotas padrao A/B nas conexoes pontilhadas | Egress de subnets privadas por zona; não é ingresso | AWS alvo |
 | Subnets públicas/privadas e AZs | Agrupamentos PUB/PRIV/DBNET e AZ-A/AZ-B | Separação de rede e placement | AWS alvo |
 | ECS/Fargate | APIs e Workers com réplica A/B | Quatro serviços ECS, duas tasks iniciais por serviço | AWS alvo |
 | RDS PostgreSQL Multi-AZ | TDB/CDB | PostgreSQL TLS/5432, standby gerenciado | AWS alvo |

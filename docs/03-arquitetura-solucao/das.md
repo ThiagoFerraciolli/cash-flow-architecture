@@ -6,6 +6,14 @@ Escopo: controle de lançamentos e relatório diário dos dois desafios de arqui
 
 Os desafios exigem as duas capacidades, independência de disponibilidade, 50 req/s no Consolidado e perda de requisições de no máximo 5%. Exigem também implementação, testes, execução local documentada e repositório público. A implementação local e a arquitetura-alvo são distinguidas no [escopo de implementação](../01-requisitos/escopo-implementacao.md). Hipóteses adotadas para fechar o caso: comerciante único, BRL, calendário America/Sao_Paulo e saldo do movimento diário. Não há estorno, edição ou multi-tenant no escopo.
 
+## Visão de negócio e inserção corporativa
+
+A [cadeia de valor, mapa de capacidades L1/L2/L3, subdomínios e context map](capacidades-e-dominios.md) precede a decomposição técnica. O resultado esperado para o comerciante é **registrar fatos de entrada/saída com confiabilidade** e **acompanhar o movimento líquido por dia**; isso não equivale a saldo bancário, liquidez disponível ou contabilidade conciliada.
+
+O recorte de negócio implementado cobre **registro de movimentos** e **apuração diária**. Processos de vendas, recebimentos, pagamentos, tesouraria, conciliação e contabilidade são **domínios vizinhos hipotéticos**, pois os PDFs não descrevem a organização nem suas integrações. A [visão de contexto C4](../04-visoes/c4.md) separa integrações reais do case de interfaces empresariais a validar.
+
+A solução não deve tratar a ausência de ERP, PDV, bancos, áreas e processos corporativos apenas como uma exclusão técnica. Para adoção em comerciante real, o levantamento com stakeholders deve confirmar origem e ownership dos movimentos, regras de fechamento e estorno, semântica do saldo, reconciliação, multi-caixa/filial, exigências legais e contratos de integração. As hipóteses de implementação local **não substituem** essa validação.
+
 ## Decomposição
 
 Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu banco. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.

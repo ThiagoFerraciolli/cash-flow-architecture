@@ -16,7 +16,7 @@ A solução não deve tratar a ausência de ERP, PDV, bancos, áreas e processos
 
 ## Decomposição
 
-Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu banco. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.
+Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu armazenamento lógico; na implementação local são instâncias PostgreSQL distintas. Na referência AWS inicial aparecem dois RDS, **mas a escolha física não decorre automaticamente da separação de contextos**: o [ADR-003](../06-adr/adr-003-persistencia-postgresql.md) compara instâncias independentes com RDS compartilhado e registra critérios para decisão de produção. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.
 
 ```mermaid
 flowchart LR
@@ -61,7 +61,7 @@ Essa transição hipotética de legado é uma preocupação diferente da escolha
 
 O requisito explícito de 50 req/s com perda máxima de 5% foi exercitado localmente em T15 durante 120 segundos: 6.000 requisições emitidas, 6.000 concluídas, 0 falhas e 0 dropped iterations. Esse resultado é evidência da janela local executada, não SLA ou prova de capacidade AWS.
 
-Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define topologia, escala e disponibilidade pretendidas; [custos](../07-infraestrutura/estimativa-custos.md) registram uma estimativa de referência, não uma fatura ou cotação vinculante.
+Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define topologia, escala e disponibilidade pretendidas; [custos](../07-infraestrutura/estimativa-custos.md) comparam dois RDS versus um RDS compartilhado, incluindo a economia hipotética e os riscos de falha/contencao/restore. Não são fatura nem cotação vinculante. A escolha física de produção permanece pendente de testes e validação de negócio.
 
 ## Decisões e fontes
 

@@ -55,6 +55,8 @@ APIs autenticam e autorizam conforme o [ADR-011](../06-adr/adr-011-autenticacao-
 
 O PDF de Soluções solicita Arquitetura de Transição apenas **se necessária, considerando migração de legado**. Nenhum legado real é descrito no case. Para demonstrar a abordagem sem transformar hipótese em fato, foi criada uma [visão de transição hipotética](arquitetura-transicao-hipotetica.md): parte de um monólito plausível no qual Lançamentos e Consolidação estão acoplados e descreve coexistência, ownership de dados, Anti-Corruption Layer, captura/publicação confiável, idempotência e reconciliação até a extração das capacidades.
 
+O [plano detalhado de migração](arquitetura-transicao-hipotetica.md) especifica inventário de origem, captura com marcador transacional, backfill idempotente, manifesto e reconciliação financeira por corte, fases F0–F7, fencing de ownership, gates de cutover e rollback condicionado à primeira escrita confirmada no novo owner. Esses controles são **propostos e não executados**: dependem de descoberta e aprovação de um legado real.
+
 Essa transição hipotética de legado é uma preocupação diferente da escolha de infraestrutura. **Local→AWS não é tratado como Arquitetura de Transição de legado.** A AWS é a topologia de implantação alvo da solução já decomposta.
 
 ## Capacidade, disponibilidade e custo

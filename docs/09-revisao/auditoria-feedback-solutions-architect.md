@@ -16,12 +16,12 @@
 ## Inconsistências efetivamente identificadas e corrigidas
 
 1. **Mermaid de transição:** identificador `M` era usado tanto como nó quanto como `subgraph` no baseline hipotético. O diagrama passou a apontar para o módulo dentro do agrupamento; **a renderização não foi testada**.
-2. **C4 de contêineres:** fluxo de consumo agora diferencia entrega AMQP do RabbitMQ local e `ReceiveMessage` iniciado pelo Worker no SQS AWS alvo. As setas são **alternativas por ambiente**, não comunicação simultânea.
+2. **C4 de contêineres:** fluxo de consumo agora diferencia entrega AMQP do RabbitMQ local e `ReceiveMessage` iniciado pelo Worker no SQS AWS alvo. A revisão posterior **separou os nós RabbitMQ/SQS e suas DLQs**, evitando que o mesmo broker visual parecesse executar dois protocolos simultaneamente. São alternativas por ambiente, não comunicação simultânea.
 3. **Inventário AWS:** nomes de agrupamentos corrigidos para corresponder aos IDs do diagrama (`PUBLIC`, `PRIVATEA`, `PRIVATEB`, `DATABASE`).
 
 ## Verificação de links desta rodada
 
-Foram inspecionados 14 arquivos da revisão (incluindo as duas matrizes, DAS, capacidades, C4, integração, AWS, custos, transição, runbooks e esta auditoria) em dois lotes. O verificador extraiu links Markdown relativos e normalizou caminhos `..`/`.` contra a árvore Git: **93 + 27 = 120 links, 0 destinos inexistentes**. Links externos, âncoras e renderização não foram testados; não é auditoria de todos os arquivos do repositório.
+A verificação inicial cobriu 14 arquivos da revisão e 120 links relativos sem destinos ausentes. **A rodada seguinte ampliou o escopo para todos os 43 arquivos Markdown da branch** (README incluído), em quatro lotes de 11/11/11/10 arquivos. O verificador extraiu links Markdown relativos e normalizou caminhos `..`/`.` contra a árvore Git: **62 + 46 + 23 + 65 = 196 links, 0 destinos inexistentes**. Links externos, âncoras, referências Markdown fora do padrão `[texto](destino)` e renderização não foram testados.
 
 ## Controle de evidências: o que é demonstrado e o que não é
 
@@ -37,7 +37,7 @@ Foram inspecionados 14 arquivos da revisão (incluindo as duas matrizes, DAS, ca
 ## Gates e status antes de considerar o feedback encerrado
 
 - **V1 — Mermaid:** renderizar e inspecionar visualmente todos os diagramas alterados, inclusive a leitura de fluxos alternativos RabbitMQ/SQS, setas de rotas NAT e limites de VPC.
-- **V2 — Links: VERIFICAÇÃO PARCIAL APROVADA.** Verificados **120 links relativos Markdown em 14 documentos alterados/revisados** contra a árvore Git da branch: **0 destinos ausentes**. O teste verifica existência de arquivo, não âncoras, conteúdo de URLs externas ou todos os demais documentos do repositório. A varredura integral continua pendente.
+- **V2 — Links: DESTINOS RELATIVOS VERIFICADOS EM TODOS OS MARKDOWN.** Verificados **196 links Markdown relativos em 43 arquivos** contra a árvore Git da branch: **0 destinos ausentes**. O teste não verifica âncoras, URLs externas, referências fora da sintaxe Markdown convencional ou renderização; essas verificações continuam pendentes.
 - **V3 — Matriz: DOCUMENTAÇÃO ATUALIZADA.** [Matriz de conformidade](../01-requisitos/matriz-conformidade.md) e [matriz de rastreabilidade](../01-requisitos/matriz-rastreabilidade.md) agora vinculam capacidades, ecossistema, rede, RDS e migração às evidências e pendências. Revisão de links e auditoria final permanecem gates separados; nenhuma nova execução de testes foi alegada.
 - **V4 — Consistência técnica:** revisar toda ocorrência de RDS separado/compartilhado, AWS implementada/alvo, AMQP/SQS e migração/rebuild/restore; classificar conflitos remanescentes.
 - **V5 — Evidência executável:** rodar build/testes em checkout da branch e registrar SHA, ambiente, comandos e resultados; não reutilizar 90 testes anteriores como se fossem execução atual.

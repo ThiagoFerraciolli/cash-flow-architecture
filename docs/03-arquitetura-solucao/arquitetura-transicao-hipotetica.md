@@ -10,7 +10,7 @@ Para tornar a decisão de transição verificável, parte-se do menor conjunto d
 
 ```mermaid
 flowchart TB
-    C[Consumidores] --> M[Monolito de Fluxo de Caixa]
+    C[Consumidores] --> L
     subgraph M[Monolito de Fluxo de Caixa]
       L[Modulo de Lancamentos]
       K[Modulo de Consolidacao]

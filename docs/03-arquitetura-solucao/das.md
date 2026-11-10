@@ -23,12 +23,15 @@ flowchart LR
     U[Consumidor autenticado] --> TA[API de Lancamentos]
     TA --> TDB[(PostgreSQL Lancamentos)]
     TW[Publicador Outbox] --> TDB
-    TW --> Q[RabbitMQ local / SQS AWS alvo]
-    Q --> CW[Consumidor]
+    TW -->|AMQP publish local| RQ[RabbitMQ local]
+    RQ -->|AMQP delivery local| CW[Consumidor]
+    TW -. "SendMessage AWS alvo" .-> SQ["SQS Standard AWS alvo"]
+    CW -. "ReceiveMessage polling AWS alvo" .-> SQ
     CW --> CDB[(PostgreSQL Consolidacao)]
     U --> CA[API de Consolidacao]
     CA --> CDB
-    Q -. falhas .-> D[DLQ]
+    RQ -. "dead lettering local" .-> RD["DLQ RabbitMQ local"]
+    SQ -. "redrive AWS alvo" .-> SD["SQS DLQ AWS alvo"]
 ```
 
 ## Fluxo e consistência

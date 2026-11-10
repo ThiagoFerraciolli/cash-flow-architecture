@@ -116,7 +116,7 @@ Este é um **diagrama de implantação-alvo**, não um C4 de componentes e não 
 | WAF, ALB e ACM | WAF, ALB e legenda HTTPS/ACM | Proteção e entrada TLS 443; roteamento por target group | AWS alvo |
 | Internet Gateway | IGW na visão de rede | Caminho público da VPC | AWS alvo |
 | NAT Gateway por AZ | NATA/NATB e rotas pontilhadas na visão de rede | Egress de subnets privadas por zona; não é ingresso | AWS alvo |
-| Subnets públicas/privadas e AZs | Agrupamentos PUBLIC/PRIVATEA/PRIVATEB/DATABASE e PUBLICNET/PRIVNET na visão complementar | Separação de rede e placement | AWS alvo |
+| Subnets públicas/privadas e AZs | Agrupamentos PUBLIC/PRIVATEA/PRIVATEB/DATABASE no fluxo principal; AZA/AZB e VPCNET na visão de rede | Separação de rede e placement; NAT correspondente a cada AZ | AWS alvo |
 | ECS/Fargate | APIs e Workers com réplica A/B | Quatro serviços ECS, duas tasks iniciais por serviço | AWS alvo |
 | RDS PostgreSQL Multi-AZ | TDB/CDB | PostgreSQL TLS/5432, standby gerenciado | AWS alvo |
 | SQS Standard e DLQ | SQS/DLQ | HTTPS SigV4, polling, delete após commit, redrive | AWS alvo, adaptador não implementado |

@@ -4,6 +4,12 @@
 
 A ferramenta administrativa local `tools/CashFlow.Recovery` é executada fora das APIs públicas. Lê um snapshot somente leitura da base de Lançamentos e escreve uma geração nova apenas na base de Consolidação. Não altera dados autoritativos de Transactions. A operação local foi demonstrada em T10; automação de reconciliação contínua, trilha operacional completa e credenciais temporárias AWS descritas nas etapas abaixo permanecem arquitetura-alvo. Rebuild da projeção não interrompe o registro de lançamentos. Restore da própria fonte é exceção: exige indisponibilidade controlada de escrita para definir um corte seguro.
 
+## Limite entre recuperação e migração de legado
+
+Este runbook trata de **reconciliação e rebuild da projeção existente** e de **restore da fonte autoritativa**, não da transferência de ownership entre um legado e um sistema novo. A [transição hipotética de legado](../03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) tem procedimento próprio de snapshot + deltas, identidade canônica, manifesto, cutover e rollback por fase.
+
+Em migração, reconciliar exige comparar **origem e destino no mesmo marcador transacional lógico**, não apenas comparar a projeção com a fonte atual. Em restore, a autoridade continua sendo a fonte recuperada, com RPO/RTO e isolamento de mensagens. Não aplicar automaticamente a estratégia de troca de geração da Consolidação como se fosse transferência de ownership financeiro.
+
 ## Controle persistente
 
 `projection_control` possui uma única linha com `active_generation_id`, `maintenance`, `maintenance_run_id`, `maintenance_started_at` e `maintenance_expires_at`. O Recovery adquire a manutenção por `UPDATE` condicional atômico; o PostgreSQL usa `clock_timestamp()` como tempo autoritativo. Todo consumidor inicia transação, obtém `FOR SHARE` nessa linha e verifica se a lease de manutenção ainda é válida antes de qualquer efeito. A trava é mantida até commit. Workers que encontrem lease válida não aplicam nem confirmam mensagens; pausam recebimentos. Após a expiração, o Worker trata a manutenção como inativa e pode retomar.

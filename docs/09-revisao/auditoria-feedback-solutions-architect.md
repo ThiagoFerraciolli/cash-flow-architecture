@@ -30,11 +30,11 @@
 | Migração de legado | [Transição](../03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) | Plano arquitetural **hipotético**; sem execução nem legado real |
 | Custo RDS compartilhado | [Estimativa](../07-infraestrutura/estimativa-custos.md) | Simulação com tarifas **hipotéticas**, dependente de dimensionamento e validação |
 
-## Gates restantes antes de considerar o feedback encerrado
+## Gates e status antes de considerar o feedback encerrado
 
 - **V1 — Mermaid:** renderizar e inspecionar visualmente todos os diagramas alterados, inclusive a leitura de fluxos alternativos RabbitMQ/SQS, setas de rotas NAT e limites de VPC.
 - **V2 — Links:** executar verificação de todos os links relativos Markdown contra a árvore da branch; a leitura manual de links de documentos selecionados **não** é varredura exaustiva.
-- **V3 — Matriz:** atualizar a [matriz de conformidade](../01-requisitos/matriz-conformidade.md) e a [matriz de rastreabilidade](../01-requisitos/matriz-rastreabilidade.md) com referências explícitas às novas análises de custos, ecossistema e migração, sem elevar seu status para `implementado`.
+- **V3 — Matriz: DOCUMENTAÇÃO ATUALIZADA.** [Matriz de conformidade](../01-requisitos/matriz-conformidade.md) e [matriz de rastreabilidade](../01-requisitos/matriz-rastreabilidade.md) agora vinculam capacidades, ecossistema, rede, RDS e migração às evidências e pendências. Revisão de links e auditoria final permanecem gates separados; nenhuma nova execução de testes foi alegada.
 - **V4 — Consistência técnica:** revisar toda ocorrência de RDS separado/compartilhado, AWS implementada/alvo, AMQP/SQS e migração/rebuild/restore; classificar conflitos remanescentes.
 - **V5 — Evidência executável:** rodar build/testes em checkout da branch e registrar SHA, ambiente, comandos e resultados; não reutilizar 90 testes anteriores como se fossem execução atual.
 - **V6 — Avaliação editorial:** leitura final como avaliador de Soluções Sênior: objetivo, capacidades, contexto, opções, trade-offs, riscos, transição, custos e só depois implementação.

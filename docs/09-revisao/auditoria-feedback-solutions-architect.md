@@ -19,6 +19,10 @@
 2. **C4 de contêineres:** fluxo de consumo agora diferencia entrega AMQP do RabbitMQ local e `ReceiveMessage` iniciado pelo Worker no SQS AWS alvo. As setas são **alternativas por ambiente**, não comunicação simultânea.
 3. **Inventário AWS:** nomes de agrupamentos corrigidos para corresponder aos IDs do diagrama (`PUBLIC`, `PRIVATEA`, `PRIVATEB`, `DATABASE`).
 
+## Verificação de links desta rodada
+
+Foram inspecionados 14 arquivos da revisão (incluindo as duas matrizes, DAS, capacidades, C4, integração, AWS, custos, transição, runbooks e esta auditoria) em dois lotes. O verificador extraiu links Markdown relativos e normalizou caminhos `..`/`.` contra a árvore Git: **93 + 27 = 120 links, 0 destinos inexistentes**. Links externos, âncoras e renderização não foram testados; não é auditoria de todos os arquivos do repositório.
+
 ## Controle de evidências: o que é demonstrado e o que não é
 
 | Alegação | Evidência documental consultada | Formulação permitida |
@@ -33,7 +37,7 @@
 ## Gates e status antes de considerar o feedback encerrado
 
 - **V1 — Mermaid:** renderizar e inspecionar visualmente todos os diagramas alterados, inclusive a leitura de fluxos alternativos RabbitMQ/SQS, setas de rotas NAT e limites de VPC.
-- **V2 — Links:** executar verificação de todos os links relativos Markdown contra a árvore da branch; a leitura manual de links de documentos selecionados **não** é varredura exaustiva.
+- **V2 — Links: VERIFICAÇÃO PARCIAL APROVADA.** Verificados **120 links relativos Markdown em 14 documentos alterados/revisados** contra a árvore Git da branch: **0 destinos ausentes**. O teste verifica existência de arquivo, não âncoras, conteúdo de URLs externas ou todos os demais documentos do repositório. A varredura integral continua pendente.
 - **V3 — Matriz: DOCUMENTAÇÃO ATUALIZADA.** [Matriz de conformidade](../01-requisitos/matriz-conformidade.md) e [matriz de rastreabilidade](../01-requisitos/matriz-rastreabilidade.md) agora vinculam capacidades, ecossistema, rede, RDS e migração às evidências e pendências. Revisão de links e auditoria final permanecem gates separados; nenhuma nova execução de testes foi alegada.
 - **V4 — Consistência técnica:** revisar toda ocorrência de RDS separado/compartilhado, AWS implementada/alvo, AMQP/SQS e migração/rebuild/restore; classificar conflitos remanescentes.
 - **V5 — Evidência executável:** rodar build/testes em checkout da branch e registrar SHA, ambiente, comandos e resultados; não reutilizar 90 testes anteriores como se fossem execução atual.

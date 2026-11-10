@@ -59,31 +59,42 @@ flowchart TB
     SQS -. "redrive policy" .-> DLQ
 ```
 
-**Rede e rotas de saída (visão complementar):** a figura seguinte explicita NAT por AZ, Internet Gateway e endpoint S3 sem cruzar as conexões de banco e mensageria do fluxo principal.
+**Rede e rotas de saída (visão complementar):** a figura seguinte agrupa **cada subnet privada e seu NAT Gateway na mesma AZ**, com Internet Gateway e **S3 Gateway Endpoint da VPC** em posições separadas. As setas pontilhadas representam rotas de rede, não conexões diretas de aplicação.
 
 ```mermaid
 flowchart TB
     INTERNET["Internet / servicos publicos"]
     IGW["Internet Gateway da VPC"]
+    INTERNET <-->|"HTTPS 443 / egress"| IGW
+
     subgraph VPCNET["VPC - rede de referencia"]
       direction TB
-      subgraph PUBLICNET["Subnets publicas"]
-        NATA["NAT Gateway AZ-A<br/>Elastic IP"]
-        NATB["NAT Gateway AZ-B<br/>Elastic IP"]
-        ALBN["ALB internet-facing<br/>subnets AZ-A e AZ-B"]
+      ALBN["ALB internet-facing<br/>associado a subnets publicas AZ-A e AZ-B"]
+
+      subgraph AZS["Zonas de disponibilidade - caminhos de egress independentes"]
+        direction LR
+        subgraph AZA["AZ-A"]
+          direction TB
+          APPA["Subnet privada A<br/>Tasks ECS"]
+          NATA["Subnet publica A<br/>NAT Gateway A / Elastic IP"]
+          APPA -. "rota padrao 0.0.0.0/0" .-> NATA
+        end
+        subgraph AZB["AZ-B"]
+          direction TB
+          APPB["Subnet privada B<br/>Tasks ECS"]
+          NATB["Subnet publica B<br/>NAT Gateway B / Elastic IP"]
+          APPB -. "rota padrao 0.0.0.0/0" .-> NATB
+        end
       end
-      subgraph PRIVNET["Subnets privadas de aplicacao"]
-        APP_A["Tasks ECS AZ-A"]
-        APP_B["Tasks ECS AZ-B"]
-      end
-      S3EP["S3 Gateway Endpoint<br/>rota especifica S3"]
+
+      S3EP["S3 Gateway Endpoint da VPC<br/>rotas especificas nas route tables privadas"]
     end
-    INTERNET <-->|"HTTPS 443 - entrada"| IGW
-    IGW <-->|"rota publica - ALB"| ALBN
-    APP_A -. "rota padrao 0.0.0.0/0" .-> NATA
-    APP_B -. "rota padrao 0.0.0.0/0" .-> NATB
-    NATA & NATB -->|"egress publico via IGW"| IGW
-    APP_A & APP_B -. "rota especifica S3" .-> S3EP
+
+    IGW <-->|"conectividade publica"| ALBN
+    NATA -->|"egress via IGW"| IGW
+    NATB -->|"egress via IGW"| IGW
+    APPA -. "rota especifica S3" .-> S3EP
+    APPB -. "rota especifica S3" .-> S3EP
 ```
 
 ## Como ler a topologia e suas fronteiras

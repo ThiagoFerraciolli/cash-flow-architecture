@@ -18,20 +18,52 @@ A solução não deve tratar a ausência de ERP, PDV, bancos, áreas e processos
 
 Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu armazenamento lógico; na implementação local são instâncias PostgreSQL distintas. Na referência AWS inicial aparecem dois RDS, **mas a escolha física não decorre automaticamente da separação de contextos**: o [ADR-003](../06-adr/adr-003-persistencia-postgresql.md) compara instâncias independentes com RDS compartilhado e registra critérios para decisão de produção. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.
 
+**Fluxo principal — ambiente local implementado.** O registro financeiro e a Outbox são persistidos atomicamente em Lançamentos. A Consolidação é atualizada de forma assíncrona e pode ficar indisponível sem bloquear novas escritas de Lançamentos.
+
+```mermaid
+flowchart TB
+    U["Consumidor autenticado"]
+    subgraph LAN["Lancamentos - fonte de verdade"]
+      direction LR
+      TA["API de Lancamentos"]
+      TDB[("PostgreSQL Lancamentos<br/>fato + idempotencia + outbox")]
+      TW["Publicador Outbox"]
+      TA -->|"transacao atomica"| TDB
+      TW -->|"reserva / atualiza outbox"| TDB
+    end
+
+    RQ["RabbitMQ local"]
+    RD["DLQ RabbitMQ local"]
+
+    subgraph CON["Consolidacao - projecao eventual"]
+      direction LR
+      CW["Consumer Worker"]
+      CDB[("PostgreSQL Consolidacao")]
+      CA["API de Consolidacao"]
+      CW -->|"deduplicacao e totais atomicos"| CDB
+      CA -->|"consulta da projecao ativa"| CDB
+    end
+
+    U --> TA
+    U --> CA
+    TW -->|"AMQP publish"| RQ
+    RQ -->|"AMQP delivery"| CW
+    RQ -. "dead lettering" .-> RD
+```
+
+**Mensageria alternativa — AWS alvo, não implementada.** A proposta substitui o RabbitMQ por SQS Standard, mantendo os mesmos processos e as responsabilidades de cada contexto. O Consumer Worker inicia o polling; a mensagem é excluída somente após commit bem-sucedido.
+
 ```mermaid
 flowchart LR
-    U[Consumidor autenticado] --> TA[API de Lancamentos]
-    TA --> TDB[(PostgreSQL Lancamentos)]
-    TW[Publicador Outbox] --> TDB
-    TW -->|AMQP publish local| RQ[RabbitMQ local]
-    RQ -->|AMQP delivery local| CW[Consumidor]
-    TW -. "SendMessage AWS alvo" .-> SQ["SQS Standard AWS alvo"]
-    CW -. "ReceiveMessage polling AWS alvo" .-> SQ
-    CW --> CDB[(PostgreSQL Consolidacao)]
-    U --> CA[API de Consolidacao]
-    CA --> CDB
-    RQ -. "dead lettering local" .-> RD["DLQ RabbitMQ local"]
-    SQ -. "redrive AWS alvo" .-> SD["SQS DLQ AWS alvo"]
+    TW["Publicador Outbox<br/>mesmo processo"]
+    SQ["SQS Standard<br/>AWS alvo"]
+    CW["Consumer Worker<br/>mesmo processo"]
+    SD["SQS DLQ<br/>AWS alvo"]
+
+    TW -->|"SendMessage HTTPS / SigV4"| SQ
+    CW -->|"ReceiveMessage polling HTTPS / SigV4"| SQ
+    CW -. "DeleteMessage apos commit" .-> SQ
+    SQ -. "redrive policy" .-> SD
 ```
 
 ## Fluxo e consistência

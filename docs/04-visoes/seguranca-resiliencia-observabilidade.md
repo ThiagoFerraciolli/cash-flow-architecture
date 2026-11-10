@@ -12,14 +12,14 @@ Na arquitetura-alvo AWS, Cognito substitui o Keycloak como emissor e ALB/WAF com
 
 ```mermaid
 flowchart LR
-    C[Cliente com token] -->|HTTPS| A[ALB + WAF]
-    A -->|HTTPS privado| API[APIs: validacao JWT e permissoes]
+    C[Cliente com token] -->|HTTPS 443| A[ALB publico + ACM / WAF associado]
+    A -->|HTTPS / target group privado| API[APIs: validacao JWT e permissoes]
     API -->|TLS com verificacao| DB[(RDS privado)]
     W[Workers com Task Role] -->|HTTPS SigV4| Q[SQS]
     I[Cognito] -. emissor confiavel .-> API
 ```
 
-O desenho AWS requer TLS 1.2+ externo, TLS ALB→tasks, verificação de certificado na conexão PostgreSQL, bancos sem endpoint público e tasks sem IP público. O ALB não fornece autenticação mútua do certificado do target; Security Groups e isolamento da rede completam a fronteira. RDS/SQS/segredos usam criptografia gerenciada/KMS conforme o recurso. Esses controles são arquitetura-alvo; não foram homologados em uma implantação AWS nesta entrega.
+O WAF representa uma Web ACL associada ao ALB, não um hop de rede independente. O diagrama é uma visão de fronteiras de segurança; as duas AZs, NAT Gateways, rotas, subnets e demais protocolos estão explicitados na [topologia de implantação AWS](../07-infraestrutura/arquitetura-aws.md). O desenho AWS requer TLS 1.2+ externo, TLS ALB→tasks, verificação de certificado na conexão PostgreSQL, bancos sem endpoint público e tasks sem IP público. O ALB não fornece autenticação mútua do certificado do target; Security Groups e isolamento da rede completam a fronteira. RDS/SQS/segredos usam criptografia gerenciada/KMS conforme o recurso. Esses controles são arquitetura-alvo; não foram homologados em uma implantação AWS nesta entrega.
 
 Rate limiting de borda e WAF pertencem ao desenho de produção. **A entrega local não implementa rate limiter HTTP/429 nas APIs.** Limites de corpo, paginação e datas são aplicados pelo contrato/código onde documentados; queries usam parâmetros e as APIs não dependem de cookies de sessão.
 

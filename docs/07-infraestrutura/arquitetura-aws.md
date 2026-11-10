@@ -8,31 +8,123 @@ VPC com duas zonas de disponibilidade, duas subnets públicas para ALB/NAT e sub
 
 Quatro ECS Services Fargate Linux x86, um por processo. Cada serviço inicia com duas tasks de 0,5 vCPU/1 GiB distribuídas entre zonas. APIs mínimo 2/máximo 6; Workers mínimo 2/máximo 4. Rolling deployment com minimumHealthyPercent 100 e maximumPercent 150, circuit breaker e rollback de deployment; capacidade temporária adicional prevista. Não confundir quatro ECS Services com quatro domínios de negócio.
 
-Dois RDS PostgreSQL 17 separados, cada um Multi-AZ com standby, classe inicial db.t4g.small e 100 GiB gp3 por banco. CPU credit de instância burstable é risco monitorado; trocar classe após medição se carga sustentada exigir. Backups/PITR 35 dias, criptografia, proteção contra exclusão e parâmetros de conexão TLS. Instância por contexto evita falha/saturação causada pela Consolidação no banco de Lançamentos.
+Dois RDS PostgreSQL 17 separados, cada um Multi-AZ com standby, classe inicial db.t4g.small e 100 GiB gp3 por banco. CPU credit de instância burstable é risco monitorado; trocar classe após medição se carga sustentada exigir. Backups/PITR 35 dias, criptografia, proteção contra exclusão e parâmetros de conexão TLS. Instância por contexto reduz a propagação de falhas e saturação do banco de Consolidação para o banco de Lançamentos, mas aumenta o custo fixo. **Essa topologia não foi aprovada como escolha econômica definitiva**; um RDS compartilhado pode ser mais adequado se a contenção de recursos e o risco de falha comum forem aceitos e validados.
 
 SQS Standard principal com retenção inicial proposta de 7 dias e DLQ de 14 dias; SSE-KMS, políticas por papel, long polling e visibility timeout a validar na homologação. Os nomes são lógicos e a infraestrutura deve permitir criar uma geração física nova de fila/DLQ em restore da fonte. Cognito é a escolha de identidade técnica para a referência AWS conforme ADR-011; ALB/ACM, WAF, ECR, Secrets Manager, CloudWatch e OpenTelemetry/X-Ray completam a topologia projetada.
 
 ```mermaid
 flowchart TB
-    U[Cliente autenticado] --> ALB[ALB HTTPS + WAF em duas zonas]
-    subgraph PRIV[Subnets privadas - duas zonas]
-      TA[ECS API Lancamentos - 2+ tasks]
-      TW[ECS Publicador - 2+ tasks]
-      CA[ECS API Consolidacao - 2+ tasks]
-      CW[ECS Consumidor - 2+ tasks]
-      TDB[(RDS Lancamentos Multi-AZ)]
-      CDB[(RDS Consolidacao Multi-AZ)]
+    CLIENT["Cliente HTTPS 443"]
+    COG["Amazon Cognito<br/>OAuth2 / OIDC / JWT"]
+    CLIENT -. "obtem token" .-> COG
+
+    subgraph VPC["VPC - duas zonas de disponibilidade"]
+      direction TB
+      subgraph PUBLIC["Entrada publica - subnets em AZ-A e AZ-B"]
+        ALB["ALB internet-facing<br/>TLS ACM / WAF associado"]
+      end
+      subgraph APPS["Aplicacao privada - ECS Fargate"]
+        direction LR
+        subgraph PRIVATEA["AZ-A - subnet privada"]
+          TAA["Transactions API A"]
+          CAA["Consolidation API A"]
+          TWA["Outbox Worker A"]
+          CWA["Consumer Worker A"]
+        end
+        subgraph PRIVATEB["AZ-B - subnet privada"]
+          TAB["Transactions API B"]
+          CAB["Consolidation API B"]
+          TWB["Outbox Worker B"]
+          CWB["Consumer Worker B"]
+        end
+      end
+      subgraph DATABASE["DB subnet group privado - duas AZs"]
+        direction LR
+        TDB[("RDS Transactions<br/>Multi-AZ")]
+        CDB[("RDS Consolidation<br/>Multi-AZ")]
+      end
     end
-    ALB --> TA
-    ALB --> CA
-    TA --> TDB
-    TW --> TDB
-    TW --> Q[SQS Standard + DLQ]
-    Q --> CW
-    CW --> CDB
-    CA --> CDB
-    PRIV -. saida HTTPS por NAT da zona .-> AWS[Servicos AWS e JWKS]
+
+    CLIENT -->|"HTTPS 443 - acesso publico via IGW"| ALB
+    ALB -->|"HTTPS - target group Transactions"| TAA & TAB
+    ALB -->|"HTTPS - target group Consolidation"| CAA & CAB
+    TAA & TAB & TWA & TWB -->|"PostgreSQL TLS 5432"| TDB
+    CAA & CAB & CWA & CWB -->|"PostgreSQL TLS 5432"| CDB
+
+    SQS["SQS Standard<br/>servico regional AWS"]
+    DLQ["SQS DLQ<br/>servico regional AWS"]
+    TWA & TWB -->|"SendMessage HTTPS SigV4"| SQS
+    CWA & CWB -->|"ReceiveMessage HTTPS SigV4"| SQS
+    CWA & CWB -. "DeleteMessage apos commit" .-> SQS
+    SQS -. "redrive policy" .-> DLQ
 ```
+
+**Rede e rotas de saída (visão complementar):** a figura seguinte agrupa **cada subnet privada e seu NAT Gateway na mesma AZ**, com Internet Gateway e **S3 Gateway Endpoint da VPC** em posições separadas. As setas pontilhadas representam rotas de rede, não conexões diretas de aplicação.
+
+```mermaid
+flowchart TB
+    INTERNET["Internet / servicos publicos"]
+    IGW["Internet Gateway da VPC"]
+    INTERNET <-->|"HTTPS 443 / egress"| IGW
+
+    subgraph VPCNET["VPC - rede de referencia"]
+      direction TB
+      ALBN["ALB internet-facing<br/>associado a subnets publicas AZ-A e AZ-B"]
+
+      subgraph AZS["Zonas de disponibilidade - caminhos de egress independentes"]
+        direction LR
+        subgraph AZA["AZ-A"]
+          direction TB
+          APPA["Subnet privada A<br/>Tasks ECS"]
+          NATA["Subnet publica A<br/>NAT Gateway A / Elastic IP"]
+          APPA -. "rota padrao 0.0.0.0/0" .-> NATA
+        end
+        subgraph AZB["AZ-B"]
+          direction TB
+          APPB["Subnet privada B<br/>Tasks ECS"]
+          NATB["Subnet publica B<br/>NAT Gateway B / Elastic IP"]
+          APPB -. "rota padrao 0.0.0.0/0" .-> NATB
+        end
+      end
+
+      S3EP["S3 Gateway Endpoint da VPC<br/>rotas especificas nas route tables privadas"]
+    end
+
+    IGW <-->|"conectividade publica"| ALBN
+    NATA -->|"egress via IGW"| IGW
+    NATB -->|"egress via IGW"| IGW
+    APPA -. "rota especifica S3" .-> S3EP
+    APPB -. "rota especifica S3" .-> S3EP
+```
+
+## Como ler a topologia e suas fronteiras
+
+Este é um **diagrama de implantação-alvo**, não um C4 de componentes e não um ambiente provisionado. As réplicas A/B tornam explícita a distribuição mínima por zona dos quatro ECS Services; cada ECS Service pode escalar acima de duas tasks conforme os limites declarados. Os bancos são desenhados no **fluxo principal como instâncias lógicas Multi-AZ**, e não como duas instâncias independentes por AZ: o standby e a localização física do writer são gerenciados pelo RDS. A opção por **dois RDS independentes, um por contexto**, é a **topologia inicial de referência, não uma decisão final de produção**. O [ADR-003](../06-adr/adr-003-persistencia-postgresql.md) e a [comparação de custos](estimativa-custos.md) avaliam explicitamente **um RDS compartilhado com dois bancos/schemas e roles** como baseline econômico condicionado a testes de contenção, disponibilidade e recuperação. O desenho não apresenta duas instâncias como única solução viável.
+
+**Entrada:** o ALB é internet-facing, associado às duas subnets públicas e protegido por AWS WAF; termina TLS com certificado ACM e distribui chamadas apenas para as APIs por target groups. O Internet Gateway, detalhado na **visão complementar de rede**, fornece conectividade pública à VPC; o WAF é uma Web ACL **associada ao ALB**, e não um roteador intermediário na VPC; **NAT não recebe tráfego HTTP de clientes**. As tasks ECS e os RDS permanecem sem IP público. Os Workers não são targets do ALB. A autenticação do cliente usa tokens emitidos pelo Cognito; as APIs validam JWT/JWKS e autorização, sem afirmar que o ALB substitui a autorização de negócio.
+
+**Saída:** cada subnet privada de aplicação tem rota padrão para o NAT Gateway **da mesma AZ**; cada NAT reside em subnet pública e utiliza o Internet Gateway para alcançar destinos públicos. Na **visão complementar de rede**, as setas pontilhadas de rota indicam **configuração de encaminhamento**, não chamadas diretas entre cada processo e o NAT. O SQS é serviço regional **fora da VPC**, não está instalado dentro das subnets. As linhas de SQS/Cognito representam dependências **lógicas**; o tráfego HTTPS pode usar NAT quando não existir endpoint privado aplicável. O S3 Gateway Endpoint tem rota própria para S3 e não substitui NAT para SQS, Cognito, ECR, CloudWatch ou outros serviços. Interface endpoints são alternativa a avaliar por custo, segurança e volume; não estão desenhados como implantados.
+
+**Dados e mensageria:** somente APIs/Workers autorizados alcançam os respectivos RDS via PostgreSQL/TLS 5432. O publicador usa a API SQS via HTTPS/SigV4, o consumidor busca mensagens por polling e só solicita `DeleteMessage` após commit da projeção; a DLQ recebe mensagens conforme redrive policy. Diferentemente de RabbitMQ local, SQS não envia mensagens por push nem oferece publisher confirms AMQP. O contrato de eventos e a deduplicação permanecem requisitos da aplicação.
+
+**Controles omitidos intencionalmente do desenho de rede:** security groups, NACLs, roles IAM, chaves KMS, CloudWatch/X-Ray, ECR, Secrets Manager e alarmes são descritos nesta página e nas visões de segurança/operação. Para evitar a falsa impressão de que tudo é uma conexão de runtime, esses serviços não foram ligados indiscriminadamente a todas as tasks. A ausência de uma seta de observabilidade não significa ausência do requisito; a [visão de segurança, resiliência e observabilidade](../04-visoes/seguranca-resiliencia-observabilidade.md) documenta os controles.
+
+### Inventário visual de componentes e protocolos
+
+| Elemento citado | Representação | Papel / protocolo | Status |
+|---|---|---|---|
+| WAF, ALB e ACM | WAF, ALB e legenda HTTPS/ACM | Proteção e entrada TLS 443; roteamento por target group | AWS alvo |
+| Internet Gateway | IGW na visão de rede | Caminho público da VPC | AWS alvo |
+| NAT Gateway por AZ | NATA/NATB e rotas pontilhadas na visão de rede | Egress de subnets privadas por zona; não é ingresso | AWS alvo |
+| Subnets públicas/privadas e AZs | Agrupamentos PUBLIC/PRIVATEA/PRIVATEB/DATABASE no fluxo principal; AZA/AZB e VPCNET na visão de rede | Separação de rede e placement; NAT correspondente a cada AZ | AWS alvo |
+| ECS/Fargate | APIs e Workers com réplica A/B | Quatro serviços ECS, duas tasks iniciais por serviço | AWS alvo |
+| RDS PostgreSQL Multi-AZ | TDB/CDB | PostgreSQL TLS/5432, standby gerenciado | AWS alvo |
+| SQS Standard e DLQ | SQS/DLQ | HTTPS SigV4, polling, delete após commit, redrive | AWS alvo, adaptador não implementado |
+| S3 Gateway Endpoint | S3EP na visão de rede | Rota S3 sem NAT | AWS alvo |
+| Cognito | COG | OAuth2/OIDC, JWT/JWKS | AWS alvo, não integrado |
+| ECR, Secrets Manager, CloudWatch, KMS | Descritos em controles, não conexões de negócio | Build/pull, segredos, telemetria, criptografia | AWS alvo |
+
+**Regra de rastreabilidade visual:** todo elemento de rede essencial à compreensão do fluxo de entrada, saída, dados ou mensageria deve aparecer no diagrama; detalhes de controle que tornariam o desenho ilegível devem aparecer em tabela ou visão complementar, com referência explícita. Os protocolos de negócio são detalhados na [visão de integração](../04-visoes/visao-integracao.md).
 
 ## Rede e acesso
 

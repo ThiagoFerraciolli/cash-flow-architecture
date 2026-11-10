@@ -21,6 +21,12 @@ Rollback de imagem é permitido somente se schema/contrato continuar compatível
 
 Na arquitetura AWS, mecanismos nativos de deployment e health checks devem interromper uma promoção quando tasks não ficam saudáveis. Alarmes de erro sustentado, ausência de tasks prontas ou divergência também devem bloquear promoção. Esses mecanismos não foram executados em AWS neste estudo de caso. Preservar imagens e versão anterior de configuração, com trilha auditável. Para segredo comprometido, rotacionar em vez de restaurar segredo inseguro.
 
+## Migração de legado — plano distinto da promoção local para AWS
+
+A [Arquitetura de Transição hipotética](../03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) define **F0–F7**, snapshot consistente, captura de deltas, reconciliação, ownership e cutover. Ela **não** corresponde à migração de Docker Compose para AWS nem ao restore de um banco. Nenhum legado real, CDC ou ferramenta de roteamento foi implementado.
+
+**Antes de executar em uma organização real:** obter aprovação do negócio para regras de dados e saldo, mapear todos os writers e consumidores, demonstrar captura sem lacunas, executar migração de ensaio com histórico representativo e provar reconciliação financeira exata no mesmo marcador lógico. O cutover de escrita exige fencing, drenagem e checkpoint final; a primeira escrita confirmada no novo owner impede simples rollback de rota. Registrar responsáveis, decisão de go/no-go e evidências por fase.
+
 ## Dados e brokers
 
 O ambiente local contém dados sintéticos e não é fonte de migração produtiva. Produção inicia vazia. Uma demonstração que precise preservar dados deve exportar snapshot de Lançamentos e identidades de idempotência, importar em ambiente isolado e reconstruir Consolidação antes da liberação; não copiar mensagens entre brokers. Operações de restore e troca física de fila pertencem ao procedimento de recuperação e devem ser ensaiadas antes de uso produtivo.

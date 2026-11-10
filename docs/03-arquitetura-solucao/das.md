@@ -6,21 +6,64 @@ Escopo: controle de lançamentos e relatório diário dos dois desafios de arqui
 
 Os desafios exigem as duas capacidades, independência de disponibilidade, 50 req/s no Consolidado e perda de requisições de no máximo 5%. Exigem também implementação, testes, execução local documentada e repositório público. A implementação local e a arquitetura-alvo são distinguidas no [escopo de implementação](../01-requisitos/escopo-implementacao.md). Hipóteses adotadas para fechar o caso: comerciante único, BRL, calendário America/Sao_Paulo e saldo do movimento diário. Não há estorno, edição ou multi-tenant no escopo.
 
+## Visão de negócio e inserção corporativa
+
+A [cadeia de valor, mapa de capacidades L1/L2/L3, subdomínios e context map](capacidades-e-dominios.md) precede a decomposição técnica. O resultado esperado para o comerciante é **registrar fatos de entrada/saída com confiabilidade** e **acompanhar o movimento líquido por dia**; isso não equivale a saldo bancário, liquidez disponível ou contabilidade conciliada.
+
+O recorte de negócio implementado cobre **registro de movimentos** e **apuração diária**. Processos de vendas, recebimentos, pagamentos, tesouraria, conciliação e contabilidade são **domínios vizinhos hipotéticos**, pois os PDFs não descrevem a organização nem suas integrações. A [visão de contexto C4](../04-visoes/c4.md) separa integrações reais do case de interfaces empresariais a validar.
+
+A solução não deve tratar a ausência de ERP, PDV, bancos, áreas e processos corporativos apenas como uma exclusão técnica. Para adoção em comerciante real, o levantamento com stakeholders deve confirmar origem e ownership dos movimentos, regras de fechamento e estorno, semântica do saldo, reconciliação, multi-caixa/filial, exigências legais e contratos de integração. As hipóteses de implementação local **não substituem** essa validação.
+
 ## Decomposição
 
-Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu banco. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.
+Dois serviços de negócio e quatro processos implantáveis: API de Lançamentos, publicador da Outbox, API de Consolidação e consumidor. Cada contexto possui seu armazenamento lógico; na implementação local são instâncias PostgreSQL distintas. Na referência AWS inicial aparecem dois RDS, **mas a escolha física não decorre automaticamente da separação de contextos**: o [ADR-003](../06-adr/adr-003-persistencia-postgresql.md) compara instâncias independentes com RDS compartilhado e registra critérios para decisão de produção. APIs e Workers podem escalar separadamente; o custo de processos extras é aceito para isolar caminho HTTP, integração e consulta.
+
+**Fluxo principal — ambiente local implementado.** O registro financeiro e a Outbox são persistidos atomicamente em Lançamentos. A Consolidação é atualizada de forma assíncrona e pode ficar indisponível sem bloquear novas escritas de Lançamentos.
+
+```mermaid
+flowchart TB
+    U["Consumidor autenticado"]
+    subgraph LAN["Lancamentos - fonte de verdade"]
+      direction LR
+      TA["API de Lancamentos"]
+      TDB[("PostgreSQL Lancamentos<br/>fato + idempotencia + outbox")]
+      TW["Publicador Outbox"]
+      TA -->|"transacao atomica"| TDB
+      TW -->|"reserva / atualiza outbox"| TDB
+    end
+
+    RQ["RabbitMQ local"]
+    RD["DLQ RabbitMQ local"]
+
+    subgraph CON["Consolidacao - projecao eventual"]
+      direction LR
+      CW["Consumer Worker"]
+      CDB[("PostgreSQL Consolidacao")]
+      CA["API de Consolidacao"]
+      CW -->|"deduplicacao e totais atomicos"| CDB
+      CA -->|"consulta da projecao ativa"| CDB
+    end
+
+    U --> TA
+    U --> CA
+    TW -->|"AMQP publish"| RQ
+    RQ -->|"AMQP delivery"| CW
+    RQ -. "dead lettering" .-> RD
+```
+
+**Mensageria alternativa — AWS alvo, não implementada.** A proposta substitui o RabbitMQ por SQS Standard, mantendo os mesmos processos e as responsabilidades de cada contexto. O Consumer Worker inicia o polling; a mensagem é excluída somente após commit bem-sucedido.
 
 ```mermaid
 flowchart LR
-    U[Consumidor autenticado] --> TA[API de Lancamentos]
-    TA --> TDB[(PostgreSQL Lancamentos)]
-    TW[Publicador Outbox] --> TDB
-    TW --> Q[RabbitMQ local / SQS AWS alvo]
-    Q --> CW[Consumidor]
-    CW --> CDB[(PostgreSQL Consolidacao)]
-    U --> CA[API de Consolidacao]
-    CA --> CDB
-    Q -. falhas .-> D[DLQ]
+    TW["Publicador Outbox<br/>mesmo processo"]
+    SQ["SQS Standard<br/>AWS alvo"]
+    CW["Consumer Worker<br/>mesmo processo"]
+    SD["SQS DLQ<br/>AWS alvo"]
+
+    TW -->|"SendMessage HTTPS / SigV4"| SQ
+    CW -->|"ReceiveMessage polling HTTPS / SigV4"| SQ
+    CW -. "DeleteMessage apos commit" .-> SQ
+    SQ -. "redrive policy" .-> SD
 ```
 
 ## Fluxo e consistência
@@ -47,13 +90,15 @@ APIs autenticam e autorizam conforme o [ADR-011](../06-adr/adr-011-autenticacao-
 
 O PDF de Soluções solicita Arquitetura de Transição apenas **se necessária, considerando migração de legado**. Nenhum legado real é descrito no case. Para demonstrar a abordagem sem transformar hipótese em fato, foi criada uma [visão de transição hipotética](arquitetura-transicao-hipotetica.md): parte de um monólito plausível no qual Lançamentos e Consolidação estão acoplados e descreve coexistência, ownership de dados, Anti-Corruption Layer, captura/publicação confiável, idempotência e reconciliação até a extração das capacidades.
 
+O [plano detalhado de migração](arquitetura-transicao-hipotetica.md) especifica inventário de origem, captura com marcador transacional, backfill idempotente, manifesto e reconciliação financeira por corte, fases F0–F7, fencing de ownership, gates de cutover e rollback condicionado à primeira escrita confirmada no novo owner. Esses controles são **propostos e não executados**: dependem de descoberta e aprovação de um legado real.
+
 Essa transição hipotética de legado é uma preocupação diferente da escolha de infraestrutura. **Local→AWS não é tratado como Arquitetura de Transição de legado.** A AWS é a topologia de implantação alvo da solução já decomposta.
 
 ## Capacidade, disponibilidade e custo
 
 O requisito explícito de 50 req/s com perda máxima de 5% foi exercitado localmente em T15 durante 120 segundos: 6.000 requisições emitidas, 6.000 concluídas, 0 falhas e 0 dropped iterations. Esse resultado é evidência da janela local executada, não SLA ou prova de capacidade AWS.
 
-Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define topologia, escala e disponibilidade pretendidas; [custos](../07-infraestrutura/estimativa-custos.md) registram uma estimativa de referência, não uma fatura ou cotação vinculante.
+Metas internas e configurações estão nos [parâmetros operacionais](../07-infraestrutura/parametros-operacionais.md). A [arquitetura AWS](../07-infraestrutura/arquitetura-aws.md) define topologia, escala e disponibilidade pretendidas; [custos](../07-infraestrutura/estimativa-custos.md) comparam dois RDS versus um RDS compartilhado, incluindo a economia hipotética e os riscos de falha/contencao/restore. Não são fatura nem cotação vinculante. A escolha física de produção permanece pendente de testes e validação de negócio.
 
 ## Decisões e fontes
 

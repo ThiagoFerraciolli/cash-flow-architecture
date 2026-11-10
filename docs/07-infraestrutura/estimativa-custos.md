@@ -29,6 +29,53 @@ As 50 consultas/s são pico, não média mensal. A estimativa assume 1 milhão d
 
 O preço de NAT é hipótese para us-east-1: a página oficial consultada apresenta exemplo regional, portanto deve ser reconfirmado no Calculator. A tarifa RDS e o armazenamento Multi-AZ também precisam de cotação com classe, engine e deployment exatos; não tratar esses valores hipotéticos como oferta vigente.
 
+## Comparação econômica e de isolamento — um RDS versus dois RDS
+
+> **Análise de alternativa, não mudança de infraestrutura:** a estimativa-base acima representa a decisão inicial de **dois RDS Multi-AZ independentes**. O desafio exige independência de Lançamentos quando a Consolidação falha, mas **não prescreve dois servidores de banco**. É necessário separar isolamento lógico, isolamento de recursos e isolamento de falhas. A avaliação abaixo usa **exatamente as hipóteses H da tabela-base**, não cotações verificadas da AWS.
+
+### Alternativas
+
+| Critério | A — 2 RDS Multi-AZ independentes (referência inicial) | B — 1 RDS Multi-AZ com 2 bancos lógicos ou schemas e roles distintos |
+|---|---|---|
+| Separação de domínio | Forte, por instância e credenciais | Forte no modelo e permissões; física compartilhada |
+| CPU, memória, I/O, conexões | Isolados por instância | Compartilhados; Consolidação pode saturar Lançamentos |
+| Falha/restart/failover de RDS | Afeta o contexto da instância | Afeta simultaneamente os dois contextos |
+| Deploy de aplicação | Independente | Independente, desde que migrations sejam segregadas |
+| Backup/PITR | Restore por instância/contexto | PITR restaura a instância inteira; recuperação seletiva exige export/import e reconciliação |
+| Segurança | Blast radius menor; permissões distintas | Roles/schemas separados, mas superfície operacional comum |
+| Custo fixo | Maior | Menor antes de redimensionamento |
+| Risco de evolução | Mais infraestrutura e operação | Exige governança de recursos e capacidade conjunta |
+| Adequação ao RNF de independência | Melhor isolamento contra falha de banco de Consolidação | Só atende se a falha simulada não afetar recursos compartilhados; **não garante isolamento contra falha/saturação do RDS comum** |
+
+**Atenção:** duas instâncias não tornam toda a solução independente; VPC, região, IAM, rede e outros serviços ainda podem ser compartilhados. Da mesma forma, bancos lógicos separados em uma única instância não equivalem a isolamento físico.
+
+### Memória de cálculo diferencial (USD/mês; hipóteses, não cotação)
+
+| Parcela | A — 2 RDS | B — 1 RDS no mesmo tamanho inicial | Diferença B − A |
+|---|---:|---:|---:|
+| Compute RDS Multi-AZ: 730 h × USD 0,08 por instância | 116,80 | 58,40 | −58,40 |
+| Storage RDS: 200 GiB totais × USD 0,25/GiB-mês | 50,00 | 50,00 | 0,00 |
+| Demais itens do orçamento-base, mantidos iguais | 339,53 | 339,53 | 0,00 |
+| **Base mensal** | **506,33** | **447,93** | **−58,40** |
+| Contingência 25% | 126,58 | 111,98 | −14,60 |
+| **Envelope mensal** | **632,91** | **559,91** | **−73,00** |
+
+**Economia indicativa:** USD 58,40/mês de base (**11,5%**) ou USD 73,00/mês com contingência (**11,5%**), assumindo que a instância compartilhada tenha **o mesmo tamanho de uma das instâncias anteriores** e suporte a carga conjunta. Isso **não está demonstrado**. Se o RDS compartilhado precisar de classe maior, IOPS, armazenamento, pooling ou controles adicionais, a economia diminui ou pode desaparecer. Não interpretar a simulação como cotação AWS ou recomendação incondicional.
+
+A hipótese de armazenamento mantém **200 GiB totais** para não inventar economia por reduzir dados; a configuração real de um RDS compartilhado poderia ser diferente. Preços H de compute, Multi-AZ, storage e backup exigem revisão no AWS Pricing Calculator, assim como limites de conexão e características da classe escolhida. Os valores da estimativa-base não constituem preços confirmados para novembro de 2026.
+
+### Testes e critérios de decisão antes de escolher B
+
+1. **Capacidade conjunta:** executar simultaneamente ingestão de lançamentos, publicação/consumo, rebuild e 50 GET/s do consolidado, medindo CPU, memória, IOPS, latência p95/p99, conexões, locks e tempo de resposta da escrita.
+2. **Falha de aplicação:** parar API e Worker de Consolidação sem impedir confirmação de Lançamentos; isto valida isolamento de processos, não do banco.
+3. **Contenção:** induzir consulta pesada, excesso de conexões, locks e I/O de Consolidação e demonstrar que o SLO de Lançamentos permanece atendido. Se não, usar limites efetivos ou preferir A.
+4. **Falha do banco:** reinício/failover do RDS compartilhado afetará ambos os contextos. Registrar aceitação explícita desse domínio de falha pelo negócio; não alegar independência total.
+5. **Restore seletivo:** ensaiar recuperação de apenas um contexto, com RPO/RTO, identidade financeira, deduplicação, outbox, replay e reconciliação. PITR da instância inteira pode retroceder ambos os contextos.
+6. **Segurança e mudança:** roles sem acesso cruzado, migrations independentes, limites de conexão e políticas de operação testados.
+7. **TCO real:** recalcular classe compartilhada, storage, I/O, backup, rede, monitoramento e operação para 1/3/12 meses, comparando cenários normal, pico e recuperação.
+
+**Recomendação condicional:** a alternativa B deve ser o **baseline econômico a validar** quando a organização aceita o risco de falha compartilhada e os testes de contenção/restore comprovam os SLOs. A alternativa A deve prevalecer quando o isolamento de recursos e falhas entre os contextos é requisito efetivo, ou quando os testes da alternativa B falham. **Nenhuma delas está homologada em AWS neste case.** O ADR-003 registra essa decisão condicional; a topologia desenhada continua mostrando A como referência inicial até a revisão formal.
+
 ## Sensibilidade e exclusões
 
 Mais uma task de 0,5 vCPU/1 GiB por 730 h adiciona aproximadamente USD 18,02 de compute, além de telemetria/rede. Dobrar todas as tasks adiciona cerca de USD 144,16. Implantação rolling usa capacidade temporária. Endpoints de interface podem substituir parte do NAT, mas precisam de orçamento por serviço/zona; não somar as duas topologias sem necessidade.

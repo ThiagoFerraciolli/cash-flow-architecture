@@ -2,9 +2,15 @@
 
 Solução para controle de lançamentos financeiros e consolidação diária, construída para demonstrar independência entre capacidades, consistência, resiliência e rastreabilidade entre requisitos, decisões, código e testes.
 
+## Contexto de negócio e decisões de solução
+
+O case cobre duas capacidades: **registrar movimentos financeiros confiáveis** e **consultar a consolidação diária**, com tolerância à indisponibilidade da Consolidação. A [cadeia de valor e o mapa de capacidades](docs/03-arquitetura-solucao/capacidades-e-dominios.md) conectam essas necessidades aos bounded contexts. Vendas, pagamentos, conciliação, tesouraria e ERP são **vizinhos hipotéticos para descoberta**, não integrações corporativas entregues.
+
+**Trade-offs e adoção:** o [ADR-003](docs/06-adr/adr-003-persistencia-postgresql.md) e a [estimativa de custos](docs/07-infraestrutura/estimativa-custos.md) comparam dois RDS independentes com um RDS compartilhado e separam isolamento lógico, falha física e custo. A [arquitetura de transição](docs/03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) propõe histórico, reconciliação, coexistência e rollback **somente para um legado hipotético**; não houve migração real. Essas decisões dependem de requisitos e testes antes da produção.
+
 ## Solução
 
-Dois serviços de negócio — **Lançamentos** e **Consolidação** — executados em quatro processos: Transactions API, Transactions Worker/Outbox Publisher, Consolidation API e Consolidation Worker. Cada contexto possui seu PostgreSQL. A integração é assíncrona, com Transactional Outbox, entrega at-least-once e consumidor idempotente. O lançamento é confirmado após commit no banco de Transactions e não depende da disponibilidade da Consolidação nem do broker.
+Dois serviços de negócio — **Lançamentos** e **Consolidação** — executados em quatro processos: Transactions API, Transactions Worker/Outbox Publisher, Consolidation API e Consolidation Worker. Cada contexto possui PostgreSQL próprio **no ambiente local**; na AWS a separação física permanece uma decisão condicional. A integração é assíncrona, com Transactional Outbox, entrega at-least-once e consumidor idempotente. O lançamento é confirmado após commit no banco de Transactions e não depende da disponibilidade da Consolidação nem do broker.
 
 ```mermaid
 flowchart LR
@@ -71,7 +77,7 @@ As [evidências locais finais](docs/08-testes/validacao-local-final.md) registra
 - T14: trace atravessou API → Outbox → Worker → RabbitMQ → Worker → banco de Consolidação no Jaeger local.
 - T15: 6.000/6.000 GETs em 120 s a 50 req/s, 0 falhas, 0 dropped iterations, P95 4,372 ms e P99 6,052 ms.
 - T18: bootstrap local limpo com migrations, serviços saudáveis, token e primeiro POST 201.
-- Regressão local da revisão atual pelo golden path `tools/validate-local.sh`: `restore` PASS, `build` PASS e **90 passed, 0 failed, 0 skipped** (13 Transactions Unit + 1 Consolidation Unit + 1 Contract + 18 Transactions Integration + 55 Consolidation Integration + 2 E2E).
+- Regressão local **registrada anteriormente** pelo golden path `tools/validate-local.sh`: `restore` PASS, `build` PASS e **90 passed, 0 failed, 0 skipped** (13 Transactions Unit + 1 Consolidation Unit + 1 Contract + 18 Transactions Integration + 55 Consolidation Integration + 2 E2E). **Esses testes não foram reexecutados na branch documental `docs/feedback-solutions-architect`.**
 
 Esses resultados são evidência **local**, não GitHub CI e não validação AWS. A [rastreabilidade de testes](docs/08-testes/production-grade-local-traceability.md) distingue estratégia normativa, cobertura automatizada e ensaios operacionais limitados.
 

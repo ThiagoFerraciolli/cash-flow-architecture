@@ -1,6 +1,6 @@
 # Auditoria transversal — resposta ao feedback de Senior Solutions Architect
 
-> **Escopo desta rodada:** revisão documental por leitura de arquivos selecionados da branch `docs/feedback-solutions-architect`, confronto de requisitos, arquitetura, ADR, custos, runbooks e evidências locais. **Não** houve build, execução de testes, implantação AWS, renderização visual de Mermaid em browser ou varredura automatizada exaustiva de todos os links. As correções desta rodada não equivalem a homologação.
+> **Escopo desta rodada:** revisão documental por leitura de arquivos selecionados da branch `docs/feedback-solutions-architect`, confronto de requisitos, arquitetura, ADR, custos, runbooks e evidências locais. **Não** houve build, execução de testes, implantação AWS, renderização visual de Mermaid em browser ou validação de âncoras e URLs externas. A verificação posterior de destinos relativos abrangeu os 43 arquivos Markdown e 196 links, sem destinos ausentes. As correções desta rodada não equivalem a homologação.
 
 ## Matriz feedback → correção → evidência → status
 
@@ -35,6 +35,19 @@ A verificação inicial cobriu 14 arquivos da revisão e 120 links relativos sem
 | Mensageria e identidade AWS | [ADR-010](../06-adr/adr-010-mensageria-local-rabbitmq-e-aws-sqs.md), [AWS](../07-infraestrutura/arquitetura-aws.md) | SQS/Cognito são **arquitetura-alvo**; adaptador SQS não implementado |
 | Migração de legado | [Transição](../03-arquitetura-solucao/arquitetura-transicao-hipotetica.md) | Plano arquitetural **hipotético**; sem execução nem legado real |
 | Custo RDS compartilhado | [Estimativa](../07-infraestrutura/estimativa-custos.md) | Simulação com tarifas **hipotéticas**, dependente de dimensionamento e validação |
+
+## Parecer crítico de revisão independente
+
+| Ponto | Classificação | Observação / ação |
+|---|---|---|
+| Capacidades e ecossistema | Cobertura documental adequada | Cadeia de valor, capacidades e contextos vizinhos distinguem hipótese de implementação; descoberta com negócio real permanece condicionante |
+| C4 e DAS | Cobertura documental adequada, visual pendente | RabbitMQ local e SQS AWS alvo agora são nós distintos; renderizar para conferir legibilidade e setas |
+| Rede AWS | Atenção de apresentação | O fluxo CLIENT → IGW → ALB é uma abstração de conectividade, não proxy de aplicação no IGW; verificar leitura do desenho e deixar WAF como associação ao ALB |
+| Custo RDS | Trade-off adequadamente exposto, não homologado | Um versus dois RDS, falha compartilhada, PITR e contenção foram discutidos; valores H não são cotação AWS |
+| Migração | Plano condicional adequado | CDC, identidade canônica, fencing e cutover dependem de inventário de legado; nenhuma migração executada |
+| Evidência | Limite explicitado | 90 testes são resultado local anterior; não reexecutados nesta branch documental |
+
+**Parecer provisório:** as seis críticas do avaliador possuem respostas documentais rastreáveis. Permanecem riscos de apresentação visual e validação futura; não se presume aprovação externa.
 
 ## Gates e status antes de considerar o feedback encerrado
 

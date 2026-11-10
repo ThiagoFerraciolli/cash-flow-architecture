@@ -18,6 +18,8 @@
 1. **Mermaid de transição:** identificador `M` era usado tanto como nó quanto como `subgraph` no baseline hipotético. O diagrama passou a apontar para o módulo dentro do agrupamento; **a renderização não foi testada**.
 2. **C4 de contêineres:** fluxo de consumo agora diferencia entrega AMQP do RabbitMQ local e `ReceiveMessage` iniciado pelo Worker no SQS AWS alvo. A revisão posterior **separou os nós RabbitMQ/SQS e suas DLQs**, evitando que o mesmo broker visual parecesse executar dois protocolos simultaneamente. São alternativas por ambiente, não comunicação simultânea.
 3. **Inventário AWS:** nomes de agrupamentos corrigidos para corresponder aos IDs do diagrama (`PUBLIC`, `PRIVATEA`, `PRIVATEB`, `DATABASE`).
+4. **DAS:** diagrama executivo também passou a mostrar RabbitMQ local e SQS AWS alvo como caminhos alternativos, cada um com sua DLQ, sem sugerir um broker híbrido.
+5. **ADR-006:** a descrição da plataforma AWS passou a referenciar expressamente o trade-off do ADR-003; dois RDS são topologia inicial, não imposição definitiva nem escolha econômica homologada.
 
 ## Verificação de links desta rodada
 
@@ -36,10 +38,10 @@ A verificação inicial cobriu 14 arquivos da revisão e 120 links relativos sem
 
 ## Gates e status antes de considerar o feedback encerrado
 
-- **V1 — Mermaid:** renderizar e inspecionar visualmente todos os diagramas alterados, inclusive a leitura de fluxos alternativos RabbitMQ/SQS, setas de rotas NAT e limites de VPC.
+- **V1 — Mermaid: PENDENTE DE RENDERIZAÇÃO.** Inspeção estática dos blocos Mermaid das principais visões (transição, capacidades, C4, integração, AWS e segurança) permitiu identificar ambiguidades semânticas e corrigir C4/DAS. **Não houve compilação/renderização visual com Mermaid CLI ou GitHub**; não declarar sintaxe aprovada. Ainda é preciso renderizar todos os diagramas, conferir legibilidade, setas NAT, limites VPC e fluxos alternativos RabbitMQ/SQS.
 - **V2 — Links: DESTINOS RELATIVOS VERIFICADOS EM TODOS OS MARKDOWN.** Verificados **196 links Markdown relativos em 43 arquivos** contra a árvore Git da branch: **0 destinos ausentes**. O teste não verifica âncoras, URLs externas, referências fora da sintaxe Markdown convencional ou renderização; essas verificações continuam pendentes.
 - **V3 — Matriz: DOCUMENTAÇÃO ATUALIZADA.** [Matriz de conformidade](../01-requisitos/matriz-conformidade.md) e [matriz de rastreabilidade](../01-requisitos/matriz-rastreabilidade.md) agora vinculam capacidades, ecossistema, rede, RDS e migração às evidências e pendências. Revisão de links e auditoria final permanecem gates separados; nenhuma nova execução de testes foi alegada.
-- **V4 — Consistência técnica:** revisar toda ocorrência de RDS separado/compartilhado, AWS implementada/alvo, AMQP/SQS e migração/rebuild/restore; classificar conflitos remanescentes.
+- **V4 — Consistência técnica: EM ANDAMENTO.** Alinhados C4 e DAS para transporte local/alternativa AWS; alinhado ADR-006 ao ADR-003 para persistência física condicional. Ainda é necessário conferir todas as demais ocorrências de RDS separado/compartilhado, AWS implementada/alvo, AMQP/SQS e migração/rebuild/restore, classificando eventuais conflitos remanescentes.
 - **V5 — Evidência executável: PENDENTE.** Consulta aos GitHub Actions workflow runs filtrados pela branch em 10/11/2026 retornou **0 execuções**. Isso não demonstra que build/testes passaram ou falharam. Rodar build/testes em checkout da branch e registrar SHA, ambiente, comandos e resultados; não reutilizar 90 testes anteriores como se fossem execução atual.
 - **V6 — Avaliação editorial:** leitura final como avaliador de Soluções Sênior: objetivo, capacidades, contexto, opções, trade-offs, riscos, transição, custos e só depois implementação.
 
